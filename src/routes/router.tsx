@@ -4,6 +4,7 @@ import { RootLayout } from '@/routes/RootLayout'
 import { PrimitivesSanityPage } from '@/routes/PrimitivesSanityPage'
 import { RouteFallback } from '@/routes/RouteFallback'
 import { RouteErrorBoundary } from '@/routes/RouteErrorBoundary'
+import { RequireAuth, RequireAnonymous, RequireOnboardingIncomplete } from '@/routes/RequireAuth'
 
 const LoginPage = lazy(() => import('@/features/onboarding/LoginPage').then((m) => ({ default: m.LoginPage })))
 const OnboardingMapPage = lazy(() =>
@@ -41,33 +42,43 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: (
-      <Suspense fallback={<RouteFallback />}>
-        <LoginPage />
-      </Suspense>
+      <RequireAnonymous>
+        <Suspense fallback={<RouteFallback />}>
+          <LoginPage />
+        </Suspense>
+      </RequireAnonymous>
     ),
     errorElement: <RouteErrorBoundary />,
   },
   {
     path: '/onboarding',
     element: (
-      <Suspense fallback={<RouteFallback />}>
-        <OnboardingMapPage />
-      </Suspense>
+      <RequireOnboardingIncomplete>
+        <Suspense fallback={<RouteFallback />}>
+          <OnboardingMapPage />
+        </Suspense>
+      </RequireOnboardingIncomplete>
     ),
     errorElement: <RouteErrorBoundary />,
   },
   {
     path: '/onboarding/interview',
     element: (
-      <Suspense fallback={<RouteFallback />}>
-        <InterviewPage />
-      </Suspense>
+      <RequireOnboardingIncomplete>
+        <Suspense fallback={<RouteFallback />}>
+          <InterviewPage />
+        </Suspense>
+      </RequireOnboardingIncomplete>
     ),
     errorElement: <RouteErrorBoundary />,
   },
   {
     path: '/',
-    element: <RootLayout />,
+    element: (
+      <RequireAuth>
+        <RootLayout />
+      </RequireAuth>
+    ),
     errorElement: <RouteErrorBoundary />,
     children: [
       { index: true, element: <HomePage /> },

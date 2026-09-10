@@ -1,13 +1,43 @@
-import { useNavigate } from 'react-router-dom'
+import { useState } from 'react'
 import { Icon } from '@/components/icons/Icon'
 import { Button } from '@/components/primitives/Button'
 import { Pill } from '@/components/primitives/Pill'
+import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient'
 
-/** `1a` — Login gate. UI-only: there is no real Okta/auth wiring in this
- * build (per locked decision), so every path here just enters the app as
- * the mock signed-in user. */
+/** `1a` — Login gate. Real magic-link auth via `supabase.auth.signInWithOtp`
+ * (sign-up is restricted to @naturalint.com at the DB trigger level — see
+ * supabase/schema.sql). The "Continue with Okta" path stays visible but
+ * disabled: Okta app registration is still pending, so magic-link is the
+ * one real, working path for now. */
 export function LoginPage() {
-  const navigate = useNavigate()
+  const [email, setEmail] = useState('')
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [errorMessage, setErrorMessage] = useState('')
+
+  async function handleMagicLink() {
+    const trimmed = email.trim()
+    if (!trimmed) {
+      setStatus('error')
+      setErrorMessage('Enter your work email first.')
+      return
+    }
+    setStatus('sending')
+    setErrorMessage('')
+    const { error } = await supabase.auth.signInWithOtp({
+      email: trimmed,
+      options: { emailRedirectTo: window.location.origin },
+    })
+    if (error) {
+      setStatus('error')
+      setErrorMessage(
+        !isSupabaseConfigured
+          ? 'No Supabase project is connected yet — this is expected until VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are set.'
+          : error.message,
+      )
+      return
+    }
+    setStatus('sent')
+  }
 
   return (
     <div className="flex min-h-screen">
@@ -53,7 +83,7 @@ export function LoginPage() {
               Access is managed by NI IT. Use your work account — no separate password.
             </p>
           </div>
-          <Button variant="primary" className="justify-center py-3.5 text-[14px]" onClick={() => navigate('/onboarding')}>
+          <Button variant="primary" className="justify-center py-3.5 text-[14px]" disabled>
             <Icon name="lock" className="h-[18px] w-[18px]" />
             Continue with Okta
           </Button>
@@ -62,15 +92,43 @@ export function LoginPage() {
             <span className="text-[12px] text-muted">or</span>
             <div className="h-px flex-1 bg-border-soft" />
           </div>
-          <div className="flex flex-col gap-2">
-            <label className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Work email</label>
-            <div className="flex h-[42px] items-center rounded-lg border border-border px-3 text-muted">
-              name@naturalint.com
+          {status === 'sent' ? (
+            <div className="flex gap-2.5 rounded-lg border border-success-fg/30 bg-success-bg p-3">
+              <Icon name="check" className="h-4 w-4 flex-none text-success-fg" />
+              <p className="text-[12px] leading-relaxed text-success-fg">
+                Magic link sent to <b>{email.trim()}</b> — check your inbox and follow the link to sign in.
+              </p>
             </div>
-            <Button variant="secondary" className="justify-center py-3" onClick={() => navigate('/onboarding')}>
-              Email me a magic link
-            </Button>
-          </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <label htmlFor="work-email" className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
+                Work email
+              </label>
+              <input
+                id="work-email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void handleMagicLink()
+                }}
+                placeholder="name@naturalint.com"
+                className="flex h-[42px] items-center rounded-lg border border-border bg-transparent px-3 text-[13px] text-ink outline-none placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_4px_var(--tl-accent-10)]"
+              />
+              <Button
+                variant="secondary"
+                className="justify-center py-3"
+                onClick={() => void handleMagicLink()}
+                disabled={status === 'sending'}
+              >
+                {status === 'sending' ? 'Sending…' : 'Email me a magic link'}
+              </Button>
+              {status === 'error' && (
+                <p className="text-[12px] text-danger-fg">{errorMessage}</p>
+              )}
+            </div>
+          )}
           <div className="flex gap-2.5 rounded-lg border border-warn-border bg-warn-bg p-3">
             <Icon name="alert" className="h-4 w-4 flex-none text-warn-fg" />
             <p className="text-[12px] leading-relaxed text-warn-fg">

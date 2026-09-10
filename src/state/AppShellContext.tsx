@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
-import { CURRENT_USER_ID, getUserById } from '@/data/fixtures/users'
+import { useAuth } from '@/state/AuthContext'
 import type { User, ViewMode } from '@/data/types'
 
 interface AppShellContextValue {
@@ -18,10 +18,33 @@ interface AppShellContextValue {
 
 const AppShellContext = createContext<AppShellContextValue | undefined>(undefined)
 
+/**
+ * `AppShellProvider` only ever mounts *inside* the auth-guarded route tree
+ * (see `RequireAuth` in `src/routes/RequireAuth.tsx`), so `useAuth().profile`
+ * is guaranteed non-null here — `AuthContext` only reaches `status:
+ * 'authenticated'` once the profile has loaded. That keeps `currentUser`'s
+ * public shape exactly as it was before (`User`, always non-null).
+ */
 export function AppShellProvider({ children }: { children: ReactNode }) {
+  const { profile } = useAuth()
   const [viewMode, setViewMode] = useState<ViewMode>('personal')
   const [searchQuery, setSearchQuery] = useState('')
-  const currentUser = useMemo(() => getUserById(CURRENT_USER_ID)!, [])
+
+  const currentUser = useMemo<User>(() => {
+    if (!profile) {
+      // Defensive fallback only — should be unreachable given RequireAuth,
+      // but keeps currentUser's type honestly non-null rather than `!`-ing
+      // past a null profile.
+      return { id: '', name: '', initials: '', role: 'cast', title: '' }
+    }
+    return {
+      id: profile.userId,
+      name: profile.name,
+      initials: profile.initials,
+      role: profile.role,
+      title: profile.title,
+    }
+  }, [profile])
 
   const value = useMemo<AppShellContextValue>(
     () => ({

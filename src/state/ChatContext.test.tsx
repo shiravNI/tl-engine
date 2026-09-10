@@ -1,17 +1,42 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { AuthProvider } from '@/state/AuthContext'
 import { AppShellProvider } from '@/state/AppShellContext'
 import { ContentProvider, useContent } from '@/state/ContentContext'
 import { ChatProvider, useChat } from '@/state/ChatContext'
 import { DIRECTOR_DRAFT_OFFER_ID } from '@/data/fixtures/chatMessages'
+import { supabase } from '@/lib/supabaseClient'
+import { defaultSeed, type MockSupabaseClient } from '@/test/supabaseTestUtils'
+
+// `ContentProvider` (which `ChatContext`'s respondToDraftOffer dispatches
+// into) now hydrates against Supabase — mock the client with an in-memory
+// fake seeded like the old fixtures, including the same
+// `draft_director_offer` draft id this test asserts against, so the
+// existing assertions keep passing unchanged.
+vi.mock('@/lib/supabaseClient', async () => {
+  const { createMockSupabaseClient, defaultSeed } = await import('@/test/supabaseTestUtils')
+  return {
+    supabase: createMockSupabaseClient(defaultSeed()),
+    isSupabaseConfigured: true,
+  }
+})
+
+// `vi.mock`'s factory only runs once per test file, so every test shares
+// one client instance — reset its in-memory tables before each test (an
+// approve/reject in one test otherwise leaks into the next).
+beforeEach(() => {
+  ;(supabase as unknown as MockSupabaseClient).__reset(defaultSeed())
+})
 
 function wrapper({ children }: { children: React.ReactNode }) {
   return (
-    <AppShellProvider>
-      <ContentProvider>
-        <ChatProvider>{children}</ChatProvider>
-      </ContentProvider>
-    </AppShellProvider>
+    <AuthProvider>
+      <AppShellProvider>
+        <ContentProvider>
+          <ChatProvider>{children}</ChatProvider>
+        </ContentProvider>
+      </AppShellProvider>
+    </AuthProvider>
   )
 }
 
@@ -85,15 +110,7 @@ describe('ChatContext — respondToDraftOffer', () => {
 
 describe('ChatContext — sendReply', () => {
   it('appends a user-authored text message to the thread', async () => {
-    const { result } = renderHook(() => useChat(), {
-      wrapper: ({ children }) => (
-        <AppShellProvider>
-          <ContentProvider>
-            <ChatProvider>{children}</ChatProvider>
-          </ContentProvider>
-        </AppShellProvider>
-      ),
-    })
+    const { result } = renderHook(() => useChat(), { wrapper })
     await waitFor(() => expect(result.current.messages.length).toBeGreaterThan(0))
     const before = result.current.messages.length
 
@@ -107,15 +124,7 @@ describe('ChatContext — sendReply', () => {
   })
 
   it('ignores a blank reply', async () => {
-    const { result } = renderHook(() => useChat(), {
-      wrapper: ({ children }) => (
-        <AppShellProvider>
-          <ContentProvider>
-            <ChatProvider>{children}</ChatProvider>
-          </ContentProvider>
-        </AppShellProvider>
-      ),
-    })
+    const { result } = renderHook(() => useChat(), { wrapper })
     await waitFor(() => expect(result.current.messages.length).toBeGreaterThan(0))
     const before = result.current.messages.length
 

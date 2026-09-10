@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { fetchBadges, fetchStreak, fetchTasks } from '@/data/services/gamificationService'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { fetchBadges, fetchStreak, fetchTasks, insertTask, updateTaskDone } from '@/data/services/gamificationService'
+import { useAppShell } from '@/state/AppShellContext'
 import { makeId } from '@/lib/id'
 import type { Badge, StreakState, Task } from '@/data/types'
 
@@ -22,15 +23,22 @@ interface GamificationContextValue {
 
 const GamificationContext = createContext<GamificationContextValue | undefined>(undefined)
 
+function reportWriteError(context: string, error: unknown) {
+  console.error(`[GamificationContext] ${context} failed to persist:`, error)
+}
+
 export function GamificationProvider({ children }: { children: ReactNode }) {
+  const { currentUser } = useAppShell()
+  const userId = currentUser.id
   const [tasks, setTasks] = useState<Task[]>([])
   const [badges, setBadges] = useState<Badge[]>([])
   const [streak, setStreak] = useState<StreakState | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!userId) return
     let cancelled = false
-    Promise.all([fetchTasks(), fetchBadges(), fetchStreak()]).then(([t, b, s]) => {
+    Promise.all([fetchTasks(userId), fetchBadges(userId), fetchStreak(userId)]).then(([t, b, s]) => {
       if (cancelled) return
       setTasks(t)
       setBadges(b)
@@ -40,22 +48,35 @@ export function GamificationProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
+  }, [userId])
+
+  const toggleTask = useCallback((id: string) => {
+    let nextDone = false
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== id) return t
+        nextDone = !t.done
+        return { ...t, done: nextDone }
+      }),
+    )
+    void updateTaskDone(id, nextDone).catch((e) => reportWriteError('toggleTask', e))
   }, [])
 
-  function toggleTask(id: string) {
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)))
-  }
-
-  function addTask(label: string) {
-    if (!label.trim()) return
-    setTasks((prev) => [...prev, { id: makeId('task'), label: label.trim(), done: false }])
-  }
+  const addTask = useCallback(
+    (label: string) => {
+      if (!label.trim()) return
+      const task: Task = { id: makeId('task'), label: label.trim(), done: false }
+      setTasks((prev) => [...prev, task])
+      void insertTask(userId, task).catch((e) => reportWriteError('addTask', e))
+    },
+    [userId],
+  )
 
   const taskCounter = useMemo(() => countDoneTasks(tasks), [tasks])
 
   const value = useMemo<GamificationContextValue>(
     () => ({ tasks, toggleTask, addTask, taskCounter, badges, streak, loading }),
-    [tasks, taskCounter, badges, streak, loading],
+    [tasks, toggleTask, addTask, taskCounter, badges, streak, loading],
   )
 
   return <GamificationContext.Provider value={value}>{children}</GamificationContext.Provider>

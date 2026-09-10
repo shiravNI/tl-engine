@@ -9,12 +9,23 @@ import {
   type ReactNode,
 } from 'react'
 import {
+  deleteDraft,
+  deleteIdea,
   fetchCarouselDecks,
   fetchDrafts,
   fetchIdeas,
   fetchPosts,
   fetchVideoItems,
+  insertDraft,
+  insertIdea,
+  insertVideoItem,
+  setIdeaArchivedAt,
+  updateCarouselSlideRow,
+  updateDraftRow,
+  updateVideoItemStage,
 } from '@/data/services/contentService'
+import { fetchVoiceCard } from '@/data/services/onboardingService'
+import { useAppShell } from '@/state/AppShellContext'
 import { canTransitionContentStage, canTransitionVideoStage } from '@/lib/statusPipeline'
 import { makeId } from '@/lib/id'
 import type {
@@ -40,10 +51,10 @@ interface ContentState {
 
 type ContentAction =
   | { type: 'HYDRATE'; payload: ContentState }
-  | { type: 'ADD_IDEA'; text: string; pillar: Pillar | null }
-  | { type: 'ARCHIVE_IDEA'; id: string }
+  | { type: 'ADD_IDEA'; id: string; text: string; pillar: Pillar | null; createdAt?: string }
+  | { type: 'ARCHIVE_IDEA'; id: string; archivedAt?: string }
   | { type: 'RESTORE_IDEA'; id: string }
-  | { type: 'CREATE_DRAFT'; seed: ComposerSeed; id: string }
+  | { type: 'CREATE_DRAFT'; seed: ComposerSeed; id: string; now?: string; voiceMatchSeed?: number }
   | { type: 'UPDATE_DRAFT'; id: string; patch: Partial<Draft> }
   | { type: 'RUN_BS_CHECK'; id: string }
   | { type: 'HUMANIZE_DRAFT'; id: string }
@@ -58,6 +69,57 @@ type ContentAction =
   | { type: 'UPDATE_CAROUSEL_SLIDE'; deckId: string; slideId: string; patch: Partial<CarouselSlide> }
   | { type: 'REGENERATE_CAROUSEL'; deckId: string }
 
+/** The exact note `RUN_BS_CHECK` sets — a module-level constant so the
+ * reducer's local dispatch and the fire-and-forget Supabase write always
+ * agree on the persisted text. */
+const BS_CHECK_PASSED_NOTE =
+  'Anchored to something specific only you could write — nobody else can write this version.'
+
+/** Pure so it can be shared between the reducer's `HUMANIZE_DRAFT` case and
+ * the `humanizeDraft` wrapper (which needs the same next values to persist
+ * them, without waiting on React's async state update). */
+export function humanizeStats(
+  aiTexture: number,
+  voiceMatch: number,
+): { aiTexture: number; voiceMatch: number } {
+  return { aiTexture: Math.max(0, aiTexture - 2), voiceMatch: Math.min(99, voiceMatch + 4) }
+}
+
+/** Pure so `CREATE_DRAFT` and the `createDraft` wrapper's fire-and-forget
+ * insert build the exact same object. `voiceMatchSeed` is the new
+ * Voice-Card-derived starting point (defaults to 0 to match pre-migration
+ * behavior when omitted, e.g. in the reducer's own unit tests). */
+export function buildDraftFromSeed(
+  id: string,
+  seed: ComposerSeed,
+  now: string,
+  voiceMatchSeed = 0,
+): Draft {
+  return {
+    id,
+    title: seed.title,
+    paragraphs: seed.paragraphs,
+    excerpt: seed.paragraphs[0] ?? '',
+    pillar: seed.pillar,
+    stage: 'draft',
+    bsCheck: 'not_run',
+    bsCheckNote: '',
+    voiceMatch: voiceMatchSeed,
+    aiTexture: 0,
+    sourceIdeaId: seed.sourceIdeaId,
+    sourceType: seed.sourceType,
+    sourceLabel: seed.sourceLabel,
+    checklist: {
+      hookEarnsSeeMore: false,
+      noLinksInBody: false,
+      visualAttached: false,
+      hashtagsAdded: false,
+    },
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
 function reducer(state: ContentState, action: ContentAction): ContentState {
   switch (action.type) {
     case 'HYDRATE':
@@ -68,11 +130,11 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
         ...state,
         ideas: [
           {
-            id: makeId('idea'),
+            id: action.id,
             text: action.text,
             pillar: action.pillar,
             source: 'manual',
-            createdAt: new Date().toISOString(),
+            createdAt: action.createdAt ?? new Date().toISOString(),
           },
           ...state.ideas,
         ],
@@ -82,7 +144,7 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
       return {
         ...state,
         ideas: state.ideas.map((i) =>
-          i.id === action.id ? { ...i, archivedAt: new Date().toISOString() } : i,
+          i.id === action.id ? { ...i, archivedAt: action.archivedAt ?? new Date().toISOString() } : i,
         ),
       }
 
@@ -93,30 +155,8 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
       }
 
     case 'CREATE_DRAFT': {
-      const now = new Date().toISOString()
-      const draft: Draft = {
-        id: action.id,
-        title: action.seed.title,
-        paragraphs: action.seed.paragraphs,
-        excerpt: action.seed.paragraphs[0] ?? '',
-        pillar: action.seed.pillar,
-        stage: 'draft',
-        bsCheck: 'not_run',
-        bsCheckNote: '',
-        voiceMatch: 0,
-        aiTexture: 0,
-        sourceIdeaId: action.seed.sourceIdeaId,
-        sourceType: action.seed.sourceType,
-        sourceLabel: action.seed.sourceLabel,
-        checklist: {
-          hookEarnsSeeMore: false,
-          noLinksInBody: false,
-          visualAttached: false,
-          hashtagsAdded: false,
-        },
-        createdAt: now,
-        updatedAt: now,
-      }
+      const now = action.now ?? new Date().toISOString()
+      const draft = buildDraftFromSeed(action.id, action.seed, now, action.voiceMatchSeed)
       return { ...state, drafts: [draft, ...state.drafts] }
     }
 
@@ -138,7 +178,7 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
             ? {
                 ...d,
                 bsCheck: 'passed',
-                bsCheckNote: 'Anchored to something specific only you could write — nobody else can write this version.',
+                bsCheckNote: BS_CHECK_PASSED_NOTE,
                 updatedAt: new Date().toISOString(),
               }
             : d,
@@ -148,16 +188,11 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
     case 'HUMANIZE_DRAFT':
       return {
         ...state,
-        drafts: state.drafts.map((d) =>
-          d.id === action.id
-            ? {
-                ...d,
-                aiTexture: Math.max(0, d.aiTexture - 2),
-                voiceMatch: Math.min(99, d.voiceMatch + 4),
-                updatedAt: new Date().toISOString(),
-              }
-            : d,
-        ),
+        drafts: state.drafts.map((d) => {
+          if (d.id !== action.id) return d
+          const next = humanizeStats(d.aiTexture, d.voiceMatch)
+          return { ...d, ...next, updatedAt: new Date().toISOString() }
+        }),
       }
 
     case 'TOGGLE_CHECKLIST':
@@ -286,7 +321,21 @@ interface ContentContextValue extends ContentState {
 
 const ContentContext = createContext<ContentContextValue | undefined>(undefined)
 
+// A note on error handling: every write below is intentionally
+// fire-and-forget against Supabase — local state already updated
+// optimistically, matching the pre-migration mock-async behavior. A
+// failed write is swallowed (logged, not surfaced) rather than rolled
+// back or retried; there's no toast/notification primitive in this
+// codebase yet to surface it to the user. `createDraft` is the one
+// exception the plan calls out explicitly (a flagged edge case), but
+// nothing here blocks navigation or undoes the optimistic UI update.
+function reportWriteError(context: string, error: unknown) {
+  console.error(`[ContentContext] ${context} failed to persist:`, error)
+}
+
 export function ContentProvider({ children }: { children: ReactNode }) {
+  const { currentUser } = useAppShell()
+  const userId = currentUser.id
   const [state, dispatch] = useReducer(reducer, {
     ideas: [],
     drafts: [],
@@ -295,56 +344,143 @@ export function ContentProvider({ children }: { children: ReactNode }) {
     carouselDecks: [],
   })
   const [loading, setLoading] = useState(true)
+  const [voiceMatchSeed, setVoiceMatchSeed] = useState(0)
 
   useEffect(() => {
+    if (!userId) return
     let cancelled = false
-    Promise.all([fetchIdeas(), fetchDrafts(), fetchPosts(), fetchVideoItems(), fetchCarouselDecks()]).then(
-      ([ideas, drafts, posts, videoItems, carouselDecks]) => {
-        if (cancelled) return
-        dispatch({ type: 'HYDRATE', payload: { ideas, drafts, posts, videoItems, carouselDecks } })
-        setLoading(false)
-      },
-    )
+    Promise.all([
+      fetchIdeas(userId),
+      fetchDrafts(userId),
+      fetchPosts(),
+      fetchVideoItems(userId),
+      fetchCarouselDecks(userId),
+      fetchVoiceCard(userId),
+    ]).then(([ideas, drafts, posts, videoItems, carouselDecks, voiceCard]) => {
+      if (cancelled) return
+      dispatch({ type: 'HYDRATE', payload: { ideas, drafts, posts, videoItems, carouselDecks } })
+      setVoiceMatchSeed(voiceCard?.completenessPct ?? 0)
+      setLoading(false)
+    })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [userId])
 
   const createDraft = useCallback(
     (seed: ComposerSeed) => {
-      const id = makeId('draft')
-      dispatch({ type: 'CREATE_DRAFT', seed, id })
+      const id = crypto.randomUUID()
+      const now = new Date().toISOString()
+      dispatch({ type: 'CREATE_DRAFT', seed, id, now, voiceMatchSeed })
+      const draft = buildDraftFromSeed(id, seed, now, voiceMatchSeed)
+      void insertDraft(userId, draft).catch((e) => reportWriteError('createDraft', e))
       return id
     },
-    [dispatch],
+    [dispatch, userId, voiceMatchSeed],
   )
 
   const value = useMemo<ContentContextValue>(
     () => ({
       ...state,
       loading,
-      addIdea: (text, pillar = null) => dispatch({ type: 'ADD_IDEA', text, pillar }),
-      archiveIdea: (id) => dispatch({ type: 'ARCHIVE_IDEA', id }),
-      restoreIdea: (id) => dispatch({ type: 'RESTORE_IDEA', id }),
+      addIdea: (text, pillar = null) => {
+        const id = makeId('idea')
+        const createdAt = new Date().toISOString()
+        dispatch({ type: 'ADD_IDEA', id, text, pillar, createdAt })
+        void insertIdea(userId, { id, text, pillar, source: 'manual', createdAt }).catch((e) =>
+          reportWriteError('addIdea', e),
+        )
+      },
+      archiveIdea: (id) => {
+        const archivedAt = new Date().toISOString()
+        dispatch({ type: 'ARCHIVE_IDEA', id, archivedAt })
+        void setIdeaArchivedAt(id, archivedAt).catch((e) => reportWriteError('archiveIdea', e))
+      },
+      restoreIdea: (id) => {
+        dispatch({ type: 'RESTORE_IDEA', id })
+        void setIdeaArchivedAt(id, null).catch((e) => reportWriteError('restoreIdea', e))
+      },
       createDraft,
-      updateDraft: (id, patch) => dispatch({ type: 'UPDATE_DRAFT', id, patch }),
-      runBsCheck: (id) => dispatch({ type: 'RUN_BS_CHECK', id }),
-      humanizeDraft: (id) => dispatch({ type: 'HUMANIZE_DRAFT', id }),
-      toggleChecklistItem: (id, key) => dispatch({ type: 'TOGGLE_CHECKLIST', id, key }),
-      setDraftStage: (id, stage, scheduledFor) =>
-        dispatch({ type: 'SET_DRAFT_STAGE', id, stage, scheduledFor }),
-      restoreDraft: (id) => dispatch({ type: 'RESTORE_DRAFT', id }),
-      deleteArchivedDraft: (id) => dispatch({ type: 'DELETE_ARCHIVED_DRAFT', id }),
-      deleteArchivedIdea: (id) => dispatch({ type: 'DELETE_ARCHIVED_IDEA', id }),
+      updateDraft: (id, patch) => {
+        dispatch({ type: 'UPDATE_DRAFT', id, patch })
+        void updateDraftRow(id, { ...patch, updatedAt: new Date().toISOString() }).catch((e) =>
+          reportWriteError('updateDraft', e),
+        )
+      },
+      runBsCheck: (id) => {
+        dispatch({ type: 'RUN_BS_CHECK', id })
+        void updateDraftRow(id, { bsCheck: 'passed', bsCheckNote: BS_CHECK_PASSED_NOTE }).catch((e) =>
+          reportWriteError('runBsCheck', e),
+        )
+      },
+      humanizeDraft: (id) => {
+        const draft = state.drafts.find((d) => d.id === id)
+        dispatch({ type: 'HUMANIZE_DRAFT', id })
+        if (draft) {
+          const next = humanizeStats(draft.aiTexture, draft.voiceMatch)
+          void updateDraftRow(id, next).catch((e) => reportWriteError('humanizeDraft', e))
+        }
+      },
+      toggleChecklistItem: (id, key) => {
+        const draft = state.drafts.find((d) => d.id === id)
+        dispatch({ type: 'TOGGLE_CHECKLIST', id, key })
+        if (draft) {
+          const nextChecklist = { ...draft.checklist, [key]: !draft.checklist[key] }
+          void updateDraftRow(id, { checklist: nextChecklist }).catch((e) =>
+            reportWriteError('toggleChecklistItem', e),
+          )
+        }
+      },
+      setDraftStage: (id, stage, scheduledFor) => {
+        const draft = state.drafts.find((d) => d.id === id)
+        if (!draft || !canTransitionContentStage(draft.stage, stage)) return
+        dispatch({ type: 'SET_DRAFT_STAGE', id, stage, scheduledFor })
+        const now = new Date().toISOString()
+        const patch: Partial<Draft> = { stage }
+        if (stage === 'scheduled') patch.scheduledFor = scheduledFor ?? now
+        if (stage === 'published') patch.publishedAt = now
+        if (stage === 'archived') patch.archivedAt = now
+        void updateDraftRow(id, patch).catch((e) => reportWriteError('setDraftStage', e))
+        // Publishing also creates a local `PostAnalytics` row (see the
+        // reducer) — `posts` is explicitly deferred to phase 2, so that
+        // row is optimistic-only for now and isn't written to Supabase.
+      },
+      restoreDraft: (id) => {
+        dispatch({ type: 'RESTORE_DRAFT', id })
+        void updateDraftRow(id, { stage: 'draft', archivedAt: undefined }).catch((e) =>
+          reportWriteError('restoreDraft', e),
+        )
+      },
+      deleteArchivedDraft: (id) => {
+        dispatch({ type: 'DELETE_ARCHIVED_DRAFT', id })
+        void deleteDraft(id).catch((e) => reportWriteError('deleteArchivedDraft', e))
+      },
+      deleteArchivedIdea: (id) => {
+        dispatch({ type: 'DELETE_ARCHIVED_IDEA', id })
+        void deleteIdea(id).catch((e) => reportWriteError('deleteArchivedIdea', e))
+      },
+      // `posts` is deferred — local-only removal, nothing to persist yet.
       deleteArchivedPost: (id) => dispatch({ type: 'DELETE_ARCHIVED_POST', id }),
-      setVideoStage: (id, stage) => dispatch({ type: 'SET_VIDEO_STAGE', id, stage }),
-      addVideoItem: (item) => dispatch({ type: 'ADD_VIDEO_ITEM', item }),
-      updateCarouselSlide: (deckId, slideId, patch) =>
-        dispatch({ type: 'UPDATE_CAROUSEL_SLIDE', deckId, slideId, patch }),
+      setVideoStage: (id, stage) => {
+        const item = state.videoItems.find((v) => v.id === id)
+        if (!item || !canTransitionVideoStage(item.stage, stage)) return
+        dispatch({ type: 'SET_VIDEO_STAGE', id, stage })
+        void updateVideoItemStage(id, stage).catch((e) => reportWriteError('setVideoStage', e))
+      },
+      addVideoItem: (item) => {
+        dispatch({ type: 'ADD_VIDEO_ITEM', item })
+        void insertVideoItem(userId, item).catch((e) => reportWriteError('addVideoItem', e))
+      },
+      updateCarouselSlide: (deckId, slideId, patch) => {
+        dispatch({ type: 'UPDATE_CAROUSEL_SLIDE', deckId, slideId, patch })
+        void updateCarouselSlideRow(slideId, patch).catch((e) =>
+          reportWriteError('updateCarouselSlide', e),
+        )
+      },
       getDraft: (id) => state.drafts.find((d) => d.id === id),
       getIdea: (id) => state.ideas.find((i) => i.id === id),
     }),
-    [state, loading, createDraft],
+    [state, loading, createDraft, userId],
   )
 
   return <ContentContext.Provider value={value}>{children}</ContentContext.Provider>

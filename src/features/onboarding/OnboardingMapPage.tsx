@@ -1,12 +1,51 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { onboardingPhases } from '@/data/fixtures/onboarding'
+import { ONBOARDING_PHASES, INTERACTIVE_PHASE_ID, ONBOARDING_QUESTIONS } from '@/data/onboardingCatalog'
+import { fetchInterviewAnswers, upsertOnboardingState } from '@/data/services/onboardingService'
+import { useAuth } from '@/state/AuthContext'
 import { Button } from '@/components/primitives/Button'
 import { Pill } from '@/components/primitives/Pill'
 import { cx } from '@/lib/cx'
+import type { OnboardingPhase } from '@/data/types'
 
-/** `4b` — Interview map: the 7 phases, set expectations before starting. */
+/** `4b` — Interview map: the 7 phases, set expectations before starting.
+ * Reads the exact same `ONBOARDING_PHASES` catalog `InterviewPage` reads —
+ * the fix for the pre-migration bug where each page hardcoded its own,
+ * independently-drifting phase list. */
 export function OnboardingMapPage() {
   const navigate = useNavigate()
+  const { profile } = useAuth()
+  const [answeredCount, setAnsweredCount] = useState(0)
+
+  useEffect(() => {
+    if (!profile) return
+    let cancelled = false
+    fetchInterviewAnswers(profile.userId).then((answers) => {
+      if (!cancelled) setAnsweredCount(answers.length)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [profile])
+
+  const opinionsDone = answeredCount >= ONBOARDING_QUESTIONS.length
+
+  const phases: OnboardingPhase[] = ONBOARDING_PHASES.map((phase) => {
+    let status: OnboardingPhase['status'] = 'upcoming'
+    if (phase.id === INTERACTIVE_PHASE_ID) {
+      status = opinionsDone ? 'done' : 'active'
+    } else if (phase.index < ONBOARDING_PHASES.find((p) => p.id === INTERACTIVE_PHASE_ID)!.index) {
+      status = 'done'
+    }
+    return { ...phase, status }
+  })
+
+  async function handleSkip() {
+    if (profile) {
+      await upsertOnboardingState(profile.userId, { skipped: true })
+    }
+    navigate('/')
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -29,7 +68,7 @@ export function OnboardingMapPage() {
         </div>
 
         <div className="flex flex-col gap-2.5">
-          {onboardingPhases.map((phase) => (
+          {phases.map((phase) => (
             <div
               key={phase.id}
               className={cx(
@@ -61,7 +100,7 @@ export function OnboardingMapPage() {
           <Button variant="primary" className="px-4 py-3" onClick={() => navigate('/onboarding/interview')}>
             Start the interview
           </Button>
-          <Button variant="ghost" onClick={() => navigate('/')}>
+          <Button variant="ghost" onClick={() => void handleSkip()}>
             Skip to a quick version — I'll fill in Core later
           </Button>
         </div>

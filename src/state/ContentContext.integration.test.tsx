@@ -1,7 +1,40 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { AuthProvider } from '@/state/AuthContext'
+import { AppShellProvider } from '@/state/AppShellContext'
 import { ContentProvider, useContent } from '@/state/ContentContext'
 import type { ComposerSeed } from '@/lib/composerSeed'
+import { supabase } from '@/lib/supabaseClient'
+import { defaultSeed, type MockSupabaseClient } from '@/test/supabaseTestUtils'
+
+// `ContentProvider` now hydrates against Supabase (via `contentService.ts`)
+// and needs a signed-in user from `AuthContext`/`AppShellContext` above it —
+// mock the Supabase client with an in-memory fake seeded like the old
+// fixtures, so this test's assertions (written against that data) keep
+// passing unchanged.
+vi.mock('@/lib/supabaseClient', async () => {
+  const { createMockSupabaseClient, defaultSeed } = await import('@/test/supabaseTestUtils')
+  return {
+    supabase: createMockSupabaseClient(defaultSeed()),
+    isSupabaseConfigured: true,
+  }
+})
+
+// `vi.mock`'s factory only runs once per test file, so every test shares
+// one client instance — reset its in-memory tables before each test.
+beforeEach(() => {
+  ;(supabase as unknown as MockSupabaseClient).__reset(defaultSeed())
+})
+
+function wrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <AuthProvider>
+      <AppShellProvider>
+        <ContentProvider>{children}</ContentProvider>
+      </AppShellProvider>
+    </AuthProvider>
+  )
+}
 
 /**
  * Exercises ContentContext end-to-end through its exposed API (not just
@@ -11,11 +44,10 @@ import type { ComposerSeed } from '@/lib/composerSeed'
  */
 describe('ContentContext (through the real provider)', () => {
   it('creates a draft from a seed and updates its status through the context', async () => {
-    const { result } = renderHook(() => useContent(), {
-      wrapper: ({ children }) => <ContentProvider>{children}</ContentProvider>,
-    })
+    const { result } = renderHook(() => useContent(), { wrapper })
 
-    // Wait for the initial fixture hydration to resolve.
+    // Wait for the initial hydration (now against the mocked Supabase
+    // client) to resolve.
     await waitFor(() => expect(result.current.loading).toBe(false))
     const initialDraftCount = result.current.drafts.length
 
