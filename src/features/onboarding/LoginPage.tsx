@@ -1,0 +1,88 @@
+import { useNavigate } from 'react-router-dom'
+import { Icon } from '@/components/icons/Icon'
+import { Button } from '@/components/primitives/Button'
+import { Pill } from '@/components/primitives/Pill'
+
+/** `1a` — Login gate. UI-only: there is no real Okta/auth wiring in this
+ * build (per locked decision), so every path here just enters the app as
+ * the mock signed-in user. */
+export function LoginPage() {
+  const navigate = useNavigate()
+
+  return (
+    <div className="flex min-h-screen">
+      <div className="flex w-[480px] flex-none flex-col justify-between bg-gradient-to-br from-umber to-espresso p-12 text-cream">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-[26px] w-[26px] items-center justify-center rounded-[9px] bg-accent font-mono text-[11px] font-medium">
+            TL
+          </div>
+          <span className="text-[14px] font-semibold">TL Engine</span>
+          <Pill className="border-transparent bg-white/15 text-cream">Internal · NI</Pill>
+        </div>
+
+        <div className="flex flex-col gap-6">
+          <h1 className="max-w-[380px] text-[36px] font-bold leading-[1.02] tracking-tight">
+            Turn what you know into what NI is known for.
+          </h1>
+          <div className="flex flex-col gap-4">
+            {[
+              { icon: 'bulb' as const, title: 'Capture', body: 'Brain dump raw ideas the moment you have them.' },
+              { icon: 'pen' as const, title: 'Draft in your voice', body: 'Your Voice Card and Core beliefs do the heavy lifting.' },
+              { icon: 'chart' as const, title: 'See what landed', body: 'Post-level analytics, cohort benchmarks, coaching notes.' },
+            ].map((item) => (
+              <div key={item.title} className="flex items-start gap-3">
+                <Icon name={item.icon} className="mt-0.5 h-[18px] w-[18px] text-clay" />
+                <div>
+                  <div className="text-[13px] font-semibold">{item.title}</div>
+                  <p className="mt-0.5 max-w-[330px] text-[12px] text-cream/65">{item.body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="text-[12px] text-cream/65">Natural Intelligence · Thought Leadership Engine v0.4</p>
+      </div>
+
+      <div className="flex flex-1 items-center justify-center bg-surface p-12">
+        <div className="flex w-[360px] flex-col gap-6">
+          <div>
+            <p className="mb-2.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Sign in</p>
+            <h2 className="text-[24px] font-bold">Welcome to TL Engine</h2>
+            <p className="mt-2 text-[13px] leading-relaxed text-body">
+              Access is managed by NI IT. Use your work account — no separate password.
+            </p>
+          </div>
+          <Button variant="primary" className="justify-center py-3.5 text-[14px]" onClick={() => navigate('/onboarding')}>
+            <Icon name="lock" className="h-[18px] w-[18px]" />
+            Continue with Okta
+          </Button>
+          <div className="flex items-center gap-2.5">
+            <div className="h-px flex-1 bg-border-soft" />
+            <span className="text-[12px] text-muted">or</span>
+            <div className="h-px flex-1 bg-border-soft" />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Work email</label>
+            <div className="flex h-[42px] items-center rounded-lg border border-border px-3 text-muted">
+              name@naturalint.com
+            </div>
+            <Button variant="secondary" className="justify-center py-3" onClick={() => navigate('/onboarding')}>
+              Email me a magic link
+            </Button>
+          </div>
+          <div className="flex gap-2.5 rounded-lg border border-warn-border bg-warn-bg p-3">
+            <Icon name="alert" className="h-4 w-4 flex-none text-warn-fg" />
+            <p className="text-[12px] leading-relaxed text-warn-fg">
+              Okta app registration is pending. This screen is the gate — magic-link fallback is the interim
+              path for pilot cast members.
+            </p>
+          </div>
+          <p className="text-[12px] text-muted">
+            Trouble signing in? <span className="font-semibold text-accent-dark">Ping #tl-engine-help</span>
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
