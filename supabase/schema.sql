@@ -114,6 +114,11 @@ create table public.voice_cards (
   pov_fingerprint     text not null default '',
   completeness_pct    int not null default 0,
   completeness_note   text not null default '',
+  -- 'personal_brand' (visibility/speaking-invite focused) vs 'audience_sales'
+  -- (audience/prospect-pain-point focused) — answered as the first real
+  -- interview question and used to branch the Opinions & POV question set
+  -- and phrase the derived Voice Card audience-first vs person-first.
+  content_orientation text check (content_orientation in ('personal_brand', 'audience_sales')),
   updated_at          timestamptz not null default now()
 );
 alter table public.voice_cards enable row level security;

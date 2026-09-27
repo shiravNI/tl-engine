@@ -7,6 +7,7 @@
 import { supabase } from '@/lib/supabaseClient'
 import type { InterviewAnswerInput } from '@/lib/voiceCard'
 import type { VoiceCardOpinion } from '@/data/types'
+import type { ContentOrientation } from '@/data/onboardingCatalog'
 
 export interface OnboardingState {
   currentPhaseIndex: number
@@ -95,6 +96,7 @@ export interface VoiceCardRecord {
   completenessPct: number
   completenessNote: string
   opinions: VoiceCardOpinion[]
+  contentOrientation: ContentOrientation | null
 }
 
 interface VoiceCardRow {
@@ -102,6 +104,7 @@ interface VoiceCardRow {
   pov_fingerprint: string
   completeness_pct: number
   completeness_note: string
+  content_orientation: ContentOrientation | null
 }
 
 interface VoiceCardOpinionRow {
@@ -133,6 +136,7 @@ export async function fetchVoiceCard(userId: string): Promise<VoiceCardRecord | 
     completenessPct: card.completeness_pct,
     completenessNote: card.completeness_note,
     opinions,
+    contentOrientation: card.content_orientation,
   }
 }
 
@@ -148,6 +152,7 @@ export async function upsertVoiceCard(userId: string, record: VoiceCardRecord): 
       pov_fingerprint: record.povFingerprint,
       completeness_pct: record.completenessPct,
       completeness_note: record.completenessNote,
+      content_orientation: record.contentOrientation,
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'user_id' },

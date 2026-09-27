@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ONBOARDING_PHASES, INTERACTIVE_PHASE_ID, ONBOARDING_QUESTIONS } from '@/data/onboardingCatalog'
+import { ONBOARDING_PHASES, INTERACTIVE_PHASE_IDS, getInterviewQuestions } from '@/data/onboardingCatalog'
 import { fetchInterviewAnswers, upsertOnboardingState } from '@/data/services/onboardingService'
+import { readContentOrientation, type InterviewAnswerInput } from '@/lib/voiceCard'
 import { useAuth } from '@/state/AuthContext'
 import { Button } from '@/components/primitives/Button'
 import { Pill } from '@/components/primitives/Pill'
 import { cx } from '@/lib/cx'
 import type { OnboardingPhase } from '@/data/types'
+
+const INTERACTIVE_PHASE_ID_SET = new Set<string>(INTERACTIVE_PHASE_IDS)
 
 /** `4b` — Interview map: the 7 phases, set expectations before starting.
  * Reads the exact same `ONBOARDING_PHASES` catalog `InterviewPage` reads —
@@ -15,30 +18,50 @@ import type { OnboardingPhase } from '@/data/types'
 export function OnboardingMapPage() {
   const navigate = useNavigate()
   const { profile } = useAuth()
-  const [answeredCount, setAnsweredCount] = useState(0)
+  const [answers, setAnswers] = useState<InterviewAnswerInput[]>([])
 
   useEffect(() => {
     if (!profile) return
     let cancelled = false
-    fetchInterviewAnswers(profile.userId).then((answers) => {
-      if (!cancelled) setAnsweredCount(answers.length)
+    fetchInterviewAnswers(profile.userId).then((existing) => {
+      if (!cancelled) setAnswers(existing)
     })
     return () => {
       cancelled = true
     }
   }, [profile])
 
-  const opinionsDone = answeredCount >= ONBOARDING_QUESTIONS.length
+  const activeQuestions = useMemo(() => getInterviewQuestions(readContentOrientation(answers)), [answers])
+  const answeredIds = useMemo(
+    () => new Set(answers.filter((a) => a.selectedOptionId || a.freeTextAnswer?.trim()).map((a) => a.questionId)),
+    [answers],
+  )
 
-  const phases: OnboardingPhase[] = ONBOARDING_PHASES.map((phase) => {
-    let status: OnboardingPhase['status'] = 'upcoming'
-    if (phase.id === INTERACTIVE_PHASE_ID) {
-      status = opinionsDone ? 'done' : 'active'
-    } else if (phase.index < ONBOARDING_PHASES.find((p) => p.id === INTERACTIVE_PHASE_ID)!.index) {
-      status = 'done'
-    }
-    return { ...phase, status }
-  })
+  // First not-fully-answered *interactive* phase is "active"; interactive
+  // phases before it are "done"; everything else — including phases 5-7,
+  // which have no real questions yet in this build — stays "upcoming".
+  // Real per-phase counts, not a guess at how far along the whole thing is.
+  const phases: OnboardingPhase[] = (() => {
+    let reachedActive = false
+    return ONBOARDING_PHASES.map((phase) => {
+      if (!INTERACTIVE_PHASE_ID_SET.has(phase.id)) {
+        return { ...phase, status: 'upcoming' as const }
+      }
+      const phaseQuestions = activeQuestions.filter((q) => q.phaseId === phase.id)
+      const answeredInPhase = phaseQuestions.filter((q) => answeredIds.has(q.id)).length
+      const done = phaseQuestions.length > 0 && answeredInPhase >= phaseQuestions.length
+      let status: OnboardingPhase['status']
+      if (done) {
+        status = 'done'
+      } else if (!reachedActive) {
+        status = 'active'
+        reachedActive = true
+      } else {
+        status = 'upcoming'
+      }
+      return { ...phase, status }
+    })
+  })()
 
   async function handleSkip() {
     if (profile) {
