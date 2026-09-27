@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { deriveVoiceCard, type InterviewAnswerInput } from '@/lib/voiceCard'
-import type { OnboardingQuestion } from '@/data/onboardingCatalog'
+import { deriveVoiceCard, readContentOrientation, type InterviewAnswerInput } from '@/lib/voiceCard'
+import { ORIENTATION_QUESTION_ID, getInterviewQuestions, type OnboardingQuestion } from '@/data/onboardingCatalog'
 
 const QUESTIONS: OnboardingQuestion[] = [
   {
@@ -80,6 +80,19 @@ describe('deriveVoiceCard', () => {
     expect(card.povFingerprint).toContain('"Full-funnel" as a buzzword')
   })
 
+  it('ignores an orphaned answer for a question id no longer in the active catalog', () => {
+    // Simulates a DB row left over from a renamed/removed question (e.g.
+    // a question-catalog change after the interview had already started) —
+    // it must not inflate completeness or surface as a fake opinion.
+    const answers: InterviewAnswerInput[] = [
+      { questionId: 'stale_removed_question', selectedOptionId: 'a', freeTextAnswer: 'Orphaned text.' },
+      { questionId: 'q1', selectedOptionId: 'b', freeTextAnswer: null },
+    ]
+    const card = deriveVoiceCard(answers, QUESTIONS)
+    expect(card.completenessPct).toBe(50) // only q1 counts; the orphan doesn't
+    expect(card.opinions).toEqual([{ id: 'op_placeholder', quote: 'Next opinion lands here…', placeholder: true }])
+  })
+
   it('is deterministic — the same answers always produce the same card', () => {
     const answers: InterviewAnswerInput[] = [
       { questionId: 'q1', selectedOptionId: 'a', freeTextAnswer: 'Some free text.' },
@@ -87,5 +100,72 @@ describe('deriveVoiceCard', () => {
     const first = deriveVoiceCard(answers, QUESTIONS)
     const second = deriveVoiceCard(answers, QUESTIONS)
     expect(second).toEqual(first)
+  })
+})
+
+describe('readContentOrientation', () => {
+  it('returns null when the orientation question has not been answered', () => {
+    expect(readContentOrientation([])).toBeNull()
+    expect(readContentOrientation([{ questionId: 'q1', selectedOptionId: 'a', freeTextAnswer: null }])).toBeNull()
+  })
+
+  it('reads the literal option id off the orientation question as the orientation value', () => {
+    const answers: InterviewAnswerInput[] = [
+      { questionId: ORIENTATION_QUESTION_ID, selectedOptionId: 'audience_sales', freeTextAnswer: null },
+    ]
+    expect(readContentOrientation(answers)).toBe('audience_sales')
+  })
+})
+
+describe('deriveVoiceCard — content orientation branching', () => {
+  it('excludes the orientation answer itself from the "leans toward" POV picks', () => {
+    const questions = getInterviewQuestions('personal_brand')
+    const answers: InterviewAnswerInput[] = [
+      { questionId: ORIENTATION_QUESTION_ID, selectedOptionId: 'personal_brand', freeTextAnswer: 'Career stuff.' },
+    ]
+    const card = deriveVoiceCard(answers, questions)
+    expect(card.povFingerprint).toMatch(/still forming/i)
+  })
+
+  it('phrases the POV fingerprint and completeness note audience-first once Audience/Sales-Led is chosen', () => {
+    const questions = getInterviewQuestions('audience_sales')
+    const answers: InterviewAnswerInput[] = [
+      { questionId: ORIENTATION_QUESTION_ID, selectedOptionId: 'audience_sales', freeTextAnswer: 'Selling to partners.' },
+      { questionId: 'q_opinion_as_1', selectedOptionId: 'a', freeTextAnswer: 'They worry it won’t fit their stack.' },
+    ]
+    const card = deriveVoiceCard(answers, questions)
+    expect(card.contentOrientation).toBe('audience_sales')
+    expect(card.povFingerprint).toMatch(/writes for an audience/i)
+    expect(card.completenessNote).toMatch(/audience's real problems/i)
+  })
+
+  it('keeps the original person-first phrasing for Personal Brand / Visibility', () => {
+    const questions = getInterviewQuestions('personal_brand')
+    const answers: InterviewAnswerInput[] = [
+      { questionId: ORIENTATION_QUESTION_ID, selectedOptionId: 'personal_brand', freeTextAnswer: 'Speaking gigs.' },
+      { questionId: 'q_opinion_pb_1', selectedOptionId: 'b', freeTextAnswer: 'Seen it firsthand.' },
+    ]
+    const card = deriveVoiceCard(answers, questions)
+    expect(card.contentOrientation).toBe('personal_brand')
+    expect(card.povFingerprint).toMatch(/^leans toward/i)
+  })
+})
+
+describe('getInterviewQuestions', () => {
+  it('returns the Personal Brand opinion questions by default (null/undefined orientation)', () => {
+    const questions = getInterviewQuestions(null)
+    const opinionIds = questions.filter((q) => q.phaseId === 'opinions').map((q) => q.id)
+    expect(opinionIds).toEqual(['q_opinion_pb_1', 'q_opinion_pb_2'])
+  })
+
+  it('swaps in the Audience/Sales-Led opinion questions once that orientation is chosen', () => {
+    const questions = getInterviewQuestions('audience_sales')
+    const opinionIds = questions.filter((q) => q.phaseId === 'opinions').map((q) => q.id)
+    expect(opinionIds).toEqual(['q_opinion_as_1', 'q_opinion_as_2'])
+  })
+
+  it('always includes identity, orientation, and voice questions ahead of the opinions round', () => {
+    const questions = getInterviewQuestions('personal_brand')
+    expect(questions.map((q) => q.phaseId)).toEqual(['identity', 'goals', 'voice', 'opinions', 'opinions'])
   })
 })

@@ -11,6 +11,7 @@ import { useContent } from '@/state/ContentContext'
 import { useGamification, countDoneTasks } from '@/state/GamificationContext'
 import { cx } from '@/lib/cx'
 import type { Idea } from '@/data/types'
+import { pickPromptStarters } from '@/data/promptStarters'
 
 const VISIBLE_IDEAS = 4
 
@@ -44,6 +45,7 @@ export function CreateDashboardPage() {
   const [ideaDraftText, setIdeaDraftText] = useState('')
   const [addingTask, setAddingTask] = useState(false)
   const [taskDraftText, setTaskDraftText] = useState('')
+  const [promptStarters, setPromptStarters] = useState(() => pickPromptStarters())
 
   const activeIdeas = ideas.filter((i) => !i.archivedAt)
   const draftStage = drafts.filter((d) => d.stage === 'draft')
@@ -103,15 +105,25 @@ export function CreateDashboardPage() {
           </div>
         )}
         <div className="w-full max-w-[720px]">
-          <p className="mb-3 text-center font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
-            Or start from a prompt
-          </p>
+          <div className="mb-3 flex items-center justify-center gap-2">
+            <p className="text-center font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
+              Or start from a prompt
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                setPromptStarters((current) =>
+                  pickPromptStarters(current.length, current.map((p) => p.q)),
+                )
+              }
+              className="flex items-center gap-1 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-accent-dark hover:underline"
+            >
+              <Icon name="refresh" className="h-[11px] w-[11px]" />
+              Refresh
+            </button>
+          </div>
           <div className="flex gap-3">
-            {[
-              { q: 'What did you change your mind about this year?', hint: 'Reversals travel further than takes.' },
-              { q: 'What number do you know that others don’t?', hint: 'Proprietary data clears the BS check instantly.' },
-              { q: 'What does your team argue about?', hint: 'Live tension beats settled wisdom.' },
-            ].map((p) => (
+            {promptStarters.map((p) => (
               <DashedPlaceholder
                 key={p.q}
                 className="flex-1 cursor-pointer flex-col items-start gap-1.5 p-3.5 text-left"
