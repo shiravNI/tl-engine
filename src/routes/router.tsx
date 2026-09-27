@@ -37,6 +37,7 @@ const MilestonesPage = lazy(() =>
   import('@/features/milestones/MilestonesPage').then((m) => ({ default: m.MilestonesPage })),
 )
 const ArchivePage = lazy(() => import('@/features/archive/ArchivePage').then((m) => ({ default: m.ArchivePage })))
+const BrainPage = lazy(() => import('@/features/brain/BrainPage').then((m) => ({ default: m.BrainPage })))
 
 export const router = createBrowserRouter([
   {
@@ -98,6 +99,7 @@ export const router = createBrowserRouter([
       { path: 'insights/posts', element: <InsightsPostsPage /> },
       { path: 'milestones', element: <MilestonesPage /> },
       { path: 'archive', element: <ArchivePage /> },
+      { path: 'brain', element: <BrainPage /> },
       { path: 'dev/primitives', element: <PrimitivesSanityPage /> },
     ],
   },

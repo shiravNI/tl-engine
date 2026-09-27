@@ -73,6 +73,7 @@ export function SideNav({ variant }: SideNavProps) {
 
   const onCreate = path.startsWith('/create')
   const onInsights = path.startsWith('/insights')
+  const onBrain = path.startsWith('/brain')
 
   if (variant === 'abbreviated') {
     return (
@@ -80,7 +81,7 @@ export function SideNav({ variant }: SideNavProps) {
         <p className="px-2.5 pb-2 pt-1 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
           My space
         </p>
-        <NavRow icon="bulb" label="Brain" to="/create" />
+        <NavRow icon="bulb" label="Brain" to="/brain" active={onBrain} />
         <Tooltip content="Core isn't part of this preview yet">
           <div>
             <NavRow icon="core" label="Core" disabled />
@@ -132,7 +133,8 @@ export function SideNav({ variant }: SideNavProps) {
       <NavRow
         icon="bulb"
         label="Brain"
-        to="/create"
+        to="/brain"
+        active={onBrain}
         trailing={!locked && <Pill className="ml-auto">{ideaCount}</Pill>}
       />
       <Tooltip content="Core isn't part of this preview yet">
