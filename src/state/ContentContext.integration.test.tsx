@@ -89,4 +89,30 @@ describe('ContentContext (through the real provider)', () => {
     expect(result.current.posts.length).toBe(postsBefore + 1)
     expect(result.current.posts[0]).toMatchObject({ draftId: newId, title: 'Drafted from a test' })
   })
+
+  it('creates a resource, reads it back via getResource, then deletes it', async () => {
+    const { result } = renderHook(() => useContent(), { wrapper })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.resources).toHaveLength(0)
+
+    let newId = ''
+    act(() => {
+      newId = result.current.createResource({
+        url: 'https://example.com/report',
+        title: 'A test resource',
+        note: '',
+        pillar: null,
+        tags: [],
+      })
+    })
+
+    await waitFor(() => expect(result.current.resources.length).toBe(1))
+    expect(result.current.getResource(newId)).toMatchObject({ url: 'https://example.com/report', title: 'A test resource' })
+
+    act(() => {
+      result.current.deleteResource(newId)
+    })
+    await waitFor(() => expect(result.current.resources.length).toBe(0))
+    expect(result.current.getResource(newId)).toBeUndefined()
+  })
 })

@@ -163,6 +163,9 @@ create table public.drafts (
   excerpt          text not null default '',
   pillar           text,
   stage            text not null default 'draft',
+  -- `'post'` (short-form, char-capped) or `'article'` (long-form) — same
+  -- pipeline either way, only the composer's layout differs client-side.
+  format           text not null default 'post' check (format in ('post', 'article')),
   bs_check         text not null default 'not_run',
   bs_check_note    text not null default '',
   voice_match      int not null default 0,
@@ -324,6 +327,29 @@ create policy "contacts_owner" on public.contacts
   for all to authenticated
   using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 create index contacts_user_idx on public.contacts (user_id);
+
+-- A dump of interesting links people find, usable later in a draft (lives
+-- under Newsletter in the nav). Hard-delete only for v1 — no soft-archive
+-- lifecycle, so unlike ideas/drafts it has no `archived_at` and no arm in
+-- `archive_entries` below.
+create table public.resources (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  url        text not null default '',
+  title      text not null default '',
+  note       text not null default '',
+  pillar     text,
+  tags       jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
+);
+alter table public.resources enable row level security;
+create policy "resources_owner" on public.resources
+  for all to authenticated
+  using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+-- Composite index deliberately (not just user_id) — matches both the
+-- Newsletter card's "N most recent" query and the full ResourcesPage's
+-- default sort, both ordered by (user_id, created_at desc).
+create index resources_user_created_idx on public.resources (user_id, created_at desc);
 
 -- ============================================================================
 -- 4. handle_new_user() — signup provisioning + @naturalint.com restriction
