@@ -69,9 +69,13 @@ export function chatMessageToInsertRow(userId: string, message: ChatMessage): Re
  * default Assistant identity, no seeded messages) the first time none is
  * found. */
 export async function fetchConversation(userId: string): Promise<Conversation> {
-  const { data, error } = await supabase.from('conversations').select('*').eq('user_id', userId)
-  if (!error && data && data.length > 0) {
-    return rowToConversation(data[0] as ConversationRow)
+  const existing = await supabase
+    .from('conversations')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+  if (!existing.error && existing.data && existing.data.length > 0) {
+    return rowToConversation(existing.data[0] as ConversationRow)
   }
 
   const row: ConversationRow & { user_id: string } = {
@@ -83,6 +87,21 @@ export async function fetchConversation(userId: string): Promise<Conversation> {
     last_activity_summary: '',
   }
   await supabase.from('conversations').insert(row)
+
+  // No unique constraint on (user_id) backs this table, so a concurrent
+  // caller (React StrictMode's double effect invocation in dev, or two
+  // tabs open at once) could have inserted its own row in the same
+  // window. Re-read and always prefer the oldest row so every caller
+  // converges on the same conversation id — any extra duplicate row is
+  // harmless clutter, never referenced by a message going forward.
+  const after = await supabase
+    .from('conversations')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+  if (!after.error && after.data && after.data.length > 0) {
+    return rowToConversation(after.data[0] as ConversationRow)
+  }
   return rowToConversation(row)
 }
 
