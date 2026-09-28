@@ -77,6 +77,11 @@ export interface Draft {
   pillar: Pillar | null
   stage: ContentStage
   format: DraftFormat
+  /** `'user'` for anything the cast member started themselves (every
+   * draft this build's UI creates); `'agent'` is reserved for the AI
+   * drafting agent (Output tab) — out of scope here, never set by this
+   * build. */
+  origin: 'user' | 'agent'
   /** 0-10, LOWER is better — the merged "Roast" quality check's score. */
   slopScore: number
   /** One punchy overall line, picked by score tier. */
@@ -140,7 +145,7 @@ export interface StreakState {
   nextMilestoneDeadline: string
 }
 
-export type ChatAuthorType = 'user' | 'director' | 'system'
+export type ChatAuthorType = 'user' | 'assistant' | 'system'
 
 export interface ChatMessage {
   id: string
@@ -152,16 +157,17 @@ export interface ChatMessage {
   text: string
   timestamp: string
   kind: 'text' | 'draft_offer' | 'help_flag' | 'system_note'
+  /** For a `draft_offer` message — resolve the draft's own title/voiceMatch
+   * live via `useContent().getDraft(draftId)` rather than reading a
+   * denormalized copy off the message (this row deliberately carries
+   * neither, to avoid drift from the draft's real, current values). */
   draftId?: string
-  voiceMatch?: number
-  draftTitle?: string
 }
 
 export interface Conversation {
   id: string
-  directorId: string
-  directorName: string
-  directorInitials: string
+  assistantName: string
+  assistantInitials: string
   status: 'online' | 'offline'
   lastActivitySummary: string
 }

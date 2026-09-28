@@ -103,6 +103,7 @@ interface DraftRow {
   roast_verdict: string
   roast_flags: RoastFlag[]
   voice_match: number
+  origin: string
   source_idea_id: string | null
   source_type: string | null
   source_label: string | null
@@ -129,6 +130,7 @@ export function rowToDraft(row: DraftRow): Draft {
     roastVerdict: row.roast_verdict,
     roastFlags: row.roast_flags ?? [],
     voiceMatch: row.voice_match,
+    origin: row.origin as Draft['origin'],
     sourceIdeaId: row.source_idea_id ?? undefined,
     sourceType: (row.source_type as Draft['sourceType']) ?? undefined,
     sourceLabel: row.source_label ?? undefined,
@@ -157,6 +159,7 @@ export function draftToInsertRow(userId: string, draft: Draft): Record<string, u
     roast_verdict: draft.roastVerdict,
     roast_flags: draft.roastFlags,
     voice_match: draft.voiceMatch,
+    origin: draft.origin,
     source_idea_id: draft.sourceIdeaId ?? null,
     source_type: draft.sourceType ?? null,
     source_label: draft.sourceLabel ?? null,

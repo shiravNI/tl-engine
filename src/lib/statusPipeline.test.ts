@@ -7,7 +7,7 @@ describe('canTransitionContentStage', () => {
     expect(canTransitionContentStage('scheduled', 'published')).toBe(true)
   })
 
-  it('allows a Director-offered draft to move into the cast member’s own drafts on approval', () => {
+  it('allows an Assistant-offered draft to move into the cast member’s own drafts on approval', () => {
     expect(canTransitionContentStage('in_review', 'draft')).toBe(true)
   })
 

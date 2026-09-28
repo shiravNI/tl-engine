@@ -25,8 +25,8 @@ export const VIDEO_STAGE_ORDER: VideoStage[] = [
 ]
 
 /**
- * Content stage isn't a strict single line — "in_review" is a side gate a
- * Director-authored draft sits in before the cast member accepts it into
+ * Content stage isn't a strict single line — "in_review" is a side gate an
+ * Assistant-authored draft sits in before the cast member accepts it into
  * their own editable Drafts, not a mandatory step between every draft and
  * scheduling. Modeled as an explicit graph rather than +/-1 index math so
  * the real, intentional shortcuts (draft -> scheduled) are allowed while

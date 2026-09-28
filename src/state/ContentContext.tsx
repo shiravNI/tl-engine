@@ -101,6 +101,7 @@ export function buildDraftFromSeed(
     pillar: seed.pillar,
     stage: 'draft',
     format: seed.format ?? 'post',
+    origin: 'user',
     slopScore: 0,
     roastVerdict: '',
     roastFlags: [],

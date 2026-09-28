@@ -61,6 +61,7 @@ describe('contentService — drafts row <-> camelCase mapper', () => {
     roast_verdict: 'Solid bones, but a few corporate tics snuck in.',
     roast_flags: [{ quote: 'first paragraph', comment: 'A specific roast.' }],
     voice_match: 72,
+    origin: 'user',
     source_idea_id: 'idea_1',
     source_type: 'idea',
     source_label: 'A test idea',

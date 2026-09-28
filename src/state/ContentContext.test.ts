@@ -16,6 +16,7 @@ function makeDraft(overrides: Partial<Draft> = {}): Draft {
     pillar: null,
     stage: 'draft',
     format: 'post',
+    origin: 'user',
     slopScore: 0,
     roastVerdict: '',
     roastFlags: [],
