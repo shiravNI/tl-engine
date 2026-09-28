@@ -9,6 +9,8 @@ import {
   type ReactNode,
 } from 'react'
 import {
+  buildCarouselDeckFromInput,
+  deleteCarouselDeckRow,
   deleteDraft,
   deleteIdea,
   fetchCarouselDecks,
@@ -16,19 +18,34 @@ import {
   fetchIdeas,
   fetchPosts,
   fetchVideoItems,
+  insertCarouselDeckRow,
   insertDraft,
   insertIdea,
+  insertPost,
   insertVideoItem,
   setIdeaArchivedAt,
   updateCarouselSlideRow,
   updateDraftRow,
   updateVideoItemStage,
+  upsertUploadedPosts,
+  type UploadedPostRow,
 } from '@/data/services/contentService'
 import { fetchVoiceCard } from '@/data/services/onboardingService'
+import { deleteResource, fetchResources, insertResource } from '@/data/services/resourceService'
+import {
+  deleteBrainMaterial as deleteBrainMaterialRow,
+  fetchBrainMaterials,
+  insertBrainMaterial,
+  uploadBrainFile,
+} from '@/data/services/brainMaterialService'
+import { generateAgentDraft as generateAgentDraftRequest, type GenerateDraftInput } from '@/data/services/agentDraftingService'
+import { insertAgentFeedback } from '@/data/services/agentFeedbackService'
 import { useAppShell } from '@/state/AppShellContext'
 import { canTransitionContentStage, canTransitionVideoStage } from '@/lib/statusPipeline'
 import { makeId } from '@/lib/id'
+import { runRoastDetector } from '@/lib/roast'
 import type {
+  BrainMaterial,
   CarouselDeck,
   CarouselSlide,
   ContentStage,
@@ -36,6 +53,7 @@ import type {
   Idea,
   Pillar,
   PostAnalytics,
+  Resource,
   VideoItem,
   VideoStage,
 } from '@/data/types'
@@ -47,6 +65,8 @@ interface ContentState {
   posts: PostAnalytics[]
   videoItems: VideoItem[]
   carouselDecks: CarouselDeck[]
+  resources: Resource[]
+  brainMaterials: BrainMaterial[]
 }
 
 type ContentAction =
@@ -56,10 +76,9 @@ type ContentAction =
   | { type: 'RESTORE_IDEA'; id: string }
   | { type: 'CREATE_DRAFT'; seed: ComposerSeed; id: string; now?: string; voiceMatchSeed?: number }
   | { type: 'UPDATE_DRAFT'; id: string; patch: Partial<Draft> }
-  | { type: 'RUN_BS_CHECK'; id: string }
-  | { type: 'HUMANIZE_DRAFT'; id: string }
+  | { type: 'RUN_ROAST'; id: string }
   | { type: 'TOGGLE_CHECKLIST'; id: string; key: keyof Draft['checklist'] }
-  | { type: 'SET_DRAFT_STAGE'; id: string; stage: ContentStage; scheduledFor?: string }
+  | { type: 'SET_DRAFT_STAGE'; id: string; stage: ContentStage; scheduledFor?: string; postId?: string }
   | { type: 'RESTORE_DRAFT'; id: string }
   | { type: 'DELETE_ARCHIVED_DRAFT'; id: string }
   | { type: 'DELETE_ARCHIVED_IDEA'; id: string }
@@ -68,22 +87,14 @@ type ContentAction =
   | { type: 'ADD_VIDEO_ITEM'; item: VideoItem }
   | { type: 'UPDATE_CAROUSEL_SLIDE'; deckId: string; slideId: string; patch: Partial<CarouselSlide> }
   | { type: 'REGENERATE_CAROUSEL'; deckId: string }
-
-/** The exact note `RUN_BS_CHECK` sets — a module-level constant so the
- * reducer's local dispatch and the fire-and-forget Supabase write always
- * agree on the persisted text. */
-const BS_CHECK_PASSED_NOTE =
-  'Anchored to something specific only you could write — nobody else can write this version.'
-
-/** Pure so it can be shared between the reducer's `HUMANIZE_DRAFT` case and
- * the `humanizeDraft` wrapper (which needs the same next values to persist
- * them, without waiting on React's async state update). */
-export function humanizeStats(
-  aiTexture: number,
-  voiceMatch: number,
-): { aiTexture: number; voiceMatch: number } {
-  return { aiTexture: Math.max(0, aiTexture - 2), voiceMatch: Math.min(99, voiceMatch + 4) }
-}
+  | { type: 'ADD_RESOURCE'; resource: Resource }
+  | { type: 'DELETE_RESOURCE'; id: string }
+  | { type: 'ADD_BRAIN_MATERIAL'; material: BrainMaterial }
+  | { type: 'DELETE_BRAIN_MATERIAL'; id: string }
+  | { type: 'ADD_DRAFT'; draft: Draft }
+  | { type: 'SET_POSTS'; posts: PostAnalytics[] }
+  | { type: 'ADD_CAROUSEL_DECK'; deck: CarouselDeck }
+  | { type: 'DELETE_CAROUSEL_DECK'; id: string }
 
 /** Pure so `CREATE_DRAFT` and the `createDraft` wrapper's fire-and-forget
  * insert build the exact same object. `voiceMatchSeed` is the new
@@ -102,10 +113,12 @@ export function buildDraftFromSeed(
     excerpt: seed.paragraphs[0] ?? '',
     pillar: seed.pillar,
     stage: 'draft',
-    bsCheck: 'not_run',
-    bsCheckNote: '',
+    format: seed.format ?? 'post',
+    origin: 'user',
+    slopScore: 0,
+    roastVerdict: '',
+    roastFlags: [],
     voiceMatch: voiceMatchSeed,
-    aiTexture: 0,
     sourceIdeaId: seed.sourceIdeaId,
     sourceType: seed.sourceType,
     sourceLabel: seed.sourceLabel,
@@ -117,6 +130,24 @@ export function buildDraftFromSeed(
     },
     createdAt: now,
     updatedAt: now,
+  }
+}
+
+/** Pure so the reducer's optimistic `SET_DRAFT_STAGE` case and the
+ * `setDraftStage` wrapper's fire-and-forget `insertPost` build the exact
+ * same row (same `id` too, passed in by the caller) — same shape
+ * convention as `buildDraftFromSeed` above. */
+export function buildPublishedPost(draft: Draft, publishedAt: string, id: string): PostAnalytics {
+  return {
+    id,
+    draftId: draft.id,
+    title: draft.title,
+    pillar: draft.pillar ?? 'Untagged',
+    publishedAt: publishedAt.slice(0, 10),
+    impressions: 0,
+    engagementRate: 0,
+    saves: 0,
+    trend: [0, 0, 0, 0, 0],
   }
 }
 
@@ -170,28 +201,19 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
         ),
       }
 
-    case 'RUN_BS_CHECK':
-      return {
-        ...state,
-        drafts: state.drafts.map((d) =>
-          d.id === action.id
-            ? {
-                ...d,
-                bsCheck: 'passed',
-                bsCheckNote: BS_CHECK_PASSED_NOTE,
-                updatedAt: new Date().toISOString(),
-              }
-            : d,
-        ),
-      }
-
-    case 'HUMANIZE_DRAFT':
+    case 'RUN_ROAST':
       return {
         ...state,
         drafts: state.drafts.map((d) => {
           if (d.id !== action.id) return d
-          const next = humanizeStats(d.aiTexture, d.voiceMatch)
-          return { ...d, ...next, updatedAt: new Date().toISOString() }
+          const result = runRoastDetector(d.paragraphs)
+          return {
+            ...d,
+            slopScore: result.slopScore,
+            roastVerdict: result.roastVerdict,
+            roastFlags: result.roastFlags,
+            updatedAt: new Date().toISOString(),
+          }
         }),
       }
 
@@ -219,20 +241,7 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
       let posts = state.posts
 
       if (action.stage === 'published') {
-        posts = [
-          {
-            id: makeId('post'),
-            draftId: draft.id,
-            title: draft.title,
-            pillar: draft.pillar ?? 'Untagged',
-            publishedAt: now.slice(0, 10),
-            impressions: 0,
-            engagementRate: 0,
-            saves: 0,
-            trend: [0, 0, 0, 0, 0],
-          },
-          ...state.posts,
-        ]
+        posts = [buildPublishedPost(draft, now, action.postId ?? makeId('post')), ...state.posts]
       }
 
       return {
@@ -292,6 +301,30 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
     case 'REGENERATE_CAROUSEL':
       return state
 
+    case 'ADD_RESOURCE':
+      return { ...state, resources: [action.resource, ...state.resources] }
+
+    case 'DELETE_RESOURCE':
+      return { ...state, resources: state.resources.filter((r) => r.id !== action.id) }
+
+    case 'ADD_BRAIN_MATERIAL':
+      return { ...state, brainMaterials: [action.material, ...state.brainMaterials] }
+
+    case 'DELETE_BRAIN_MATERIAL':
+      return { ...state, brainMaterials: state.brainMaterials.filter((m) => m.id !== action.id) }
+
+    case 'ADD_DRAFT':
+      return { ...state, drafts: [action.draft, ...state.drafts] }
+
+    case 'SET_POSTS':
+      return { ...state, posts: action.posts }
+
+    case 'ADD_CAROUSEL_DECK':
+      return { ...state, carouselDecks: [action.deck, ...state.carouselDecks] }
+
+    case 'DELETE_CAROUSEL_DECK':
+      return { ...state, carouselDecks: state.carouselDecks.filter((d) => d.id !== action.id) }
+
     default:
       return state
   }
@@ -304,8 +337,7 @@ interface ContentContextValue extends ContentState {
   restoreIdea: (id: string) => void
   createDraft: (seed: ComposerSeed) => string
   updateDraft: (id: string, patch: Partial<Draft>) => void
-  runBsCheck: (id: string) => void
-  humanizeDraft: (id: string) => void
+  runRoastCheck: (id: string) => void
   toggleChecklistItem: (id: string, key: keyof Draft['checklist']) => void
   setDraftStage: (id: string, stage: ContentStage, scheduledFor?: string) => void
   restoreDraft: (id: string) => void
@@ -315,8 +347,33 @@ interface ContentContextValue extends ContentState {
   setVideoStage: (id: string, stage: VideoStage) => void
   addVideoItem: (item: VideoItem) => void
   updateCarouselSlide: (deckId: string, slideId: string, patch: Partial<CarouselSlide>) => void
+  createCarouselDeck: (input: { title: string; prompt: string }) => string
+  deleteCarouselDeck: (id: string) => void
   getDraft: (id: string) => Draft | undefined
   getIdea: (id: string) => Idea | undefined
+  createResource: (input: Omit<Resource, 'id' | 'createdAt'>) => string
+  deleteResource: (id: string) => void
+  getResource: (id: string) => Resource | undefined
+  createBrainMaterialFromText: (input: { kind: BrainMaterial['kind']; title: string; textContent: string }) => void
+  createBrainMaterialFromFile: (
+    file: File,
+    meta: { kind: BrainMaterial['kind']; title: string },
+  ) => Promise<void>
+  addBrainMaterialLink: (input: { kind: BrainMaterial['kind']; title: string; sourceUrl: string }) => void
+  deleteBrainMaterial: (id: string) => void
+  /** Bulk-imports posts parsed from an uploaded `.xlsx` export — matches
+   * existing rows by `(title, publishedAt)` so re-uploading updates
+   * instead of duplicating. Genuinely async (not the usual
+   * optimistic-dispatch-then-fire-and-forget pattern): the upload needs to
+   * resolve against the user's real existing rows before the UI can show
+   * an accurate merged result. */
+  importPosts: (rows: UploadedPostRow[]) => Promise<void>
+  /** Calls the real `generate-drafts` edge function and adds the resulting
+   * agent-authored draft to local state. Throws the function's own
+   * user-facing error message (missing key, thin Voice Card, nothing to
+   * draft from) — callers show it directly, there's nothing to translate. */
+  generateAgentDraft: (input: GenerateDraftInput) => Promise<Draft>
+  recordAgentFeedback: (input: { draftId: string; action: 'rejected' | 'edited'; reason: string }) => void
 }
 
 const ContentContext = createContext<ContentContextValue | undefined>(undefined)
@@ -342,6 +399,8 @@ export function ContentProvider({ children }: { children: ReactNode }) {
     posts: [],
     videoItems: [],
     carouselDecks: [],
+    resources: [],
+    brainMaterials: [],
   })
   const [loading, setLoading] = useState(true)
   const [voiceMatchSeed, setVoiceMatchSeed] = useState(0)
@@ -352,13 +411,18 @@ export function ContentProvider({ children }: { children: ReactNode }) {
     Promise.all([
       fetchIdeas(userId),
       fetchDrafts(userId),
-      fetchPosts(),
+      fetchPosts(userId),
       fetchVideoItems(userId),
       fetchCarouselDecks(userId),
       fetchVoiceCard(userId),
-    ]).then(([ideas, drafts, posts, videoItems, carouselDecks, voiceCard]) => {
+      fetchResources(userId),
+      fetchBrainMaterials(userId),
+    ]).then(([ideas, drafts, posts, videoItems, carouselDecks, voiceCard, resources, brainMaterials]) => {
       if (cancelled) return
-      dispatch({ type: 'HYDRATE', payload: { ideas, drafts, posts, videoItems, carouselDecks } })
+      dispatch({
+        type: 'HYDRATE',
+        payload: { ideas, drafts, posts, videoItems, carouselDecks, resources, brainMaterials },
+      })
       setVoiceMatchSeed(voiceCard?.completenessPct ?? 0)
       setLoading(false)
     })
@@ -407,19 +471,16 @@ export function ContentProvider({ children }: { children: ReactNode }) {
           reportWriteError('updateDraft', e),
         )
       },
-      runBsCheck: (id) => {
-        dispatch({ type: 'RUN_BS_CHECK', id })
-        void updateDraftRow(id, { bsCheck: 'passed', bsCheckNote: BS_CHECK_PASSED_NOTE }).catch((e) =>
-          reportWriteError('runBsCheck', e),
-        )
-      },
-      humanizeDraft: (id) => {
+      runRoastCheck: (id) => {
         const draft = state.drafts.find((d) => d.id === id)
-        dispatch({ type: 'HUMANIZE_DRAFT', id })
-        if (draft) {
-          const next = humanizeStats(draft.aiTexture, draft.voiceMatch)
-          void updateDraftRow(id, next).catch((e) => reportWriteError('humanizeDraft', e))
-        }
+        if (!draft) return
+        const result = runRoastDetector(draft.paragraphs)
+        dispatch({ type: 'RUN_ROAST', id })
+        void updateDraftRow(id, {
+          slopScore: result.slopScore,
+          roastVerdict: result.roastVerdict,
+          roastFlags: result.roastFlags,
+        }).catch((e) => reportWriteError('runRoastCheck', e))
       },
       toggleChecklistItem: (id, key) => {
         const draft = state.drafts.find((d) => d.id === id)
@@ -434,16 +495,21 @@ export function ContentProvider({ children }: { children: ReactNode }) {
       setDraftStage: (id, stage, scheduledFor) => {
         const draft = state.drafts.find((d) => d.id === id)
         if (!draft || !canTransitionContentStage(draft.stage, stage)) return
-        dispatch({ type: 'SET_DRAFT_STAGE', id, stage, scheduledFor })
+        const postId = stage === 'published' ? makeId('post') : undefined
+        dispatch({ type: 'SET_DRAFT_STAGE', id, stage, scheduledFor, postId })
         const now = new Date().toISOString()
         const patch: Partial<Draft> = { stage }
         if (stage === 'scheduled') patch.scheduledFor = scheduledFor ?? now
         if (stage === 'published') patch.publishedAt = now
         if (stage === 'archived') patch.archivedAt = now
         void updateDraftRow(id, patch).catch((e) => reportWriteError('setDraftStage', e))
-        // Publishing also creates a local `PostAnalytics` row (see the
-        // reducer) — `posts` is explicitly deferred to phase 2, so that
-        // row is optimistic-only for now and isn't written to Supabase.
+        // Publishing also creates a real `posts` row — same `id` as the
+        // optimistic one the reducer just added to local state, so this
+        // fire-and-forget write persists exactly what's already on screen.
+        if (stage === 'published' && postId) {
+          const post = buildPublishedPost(draft, now, postId)
+          void insertPost(userId, post).catch((e) => reportWriteError('setDraftStage:insertPost', e))
+        }
       },
       restoreDraft: (id) => {
         dispatch({ type: 'RESTORE_DRAFT', id })
@@ -477,8 +543,98 @@ export function ContentProvider({ children }: { children: ReactNode }) {
           reportWriteError('updateCarouselSlide', e),
         )
       },
+      createCarouselDeck: (input) => {
+        const id = crypto.randomUUID()
+        const deck = buildCarouselDeckFromInput(id, input)
+        dispatch({ type: 'ADD_CAROUSEL_DECK', deck })
+        void insertCarouselDeckRow(userId, deck).catch((e) => reportWriteError('createCarouselDeck', e))
+        return id
+      },
+      deleteCarouselDeck: (id) => {
+        dispatch({ type: 'DELETE_CAROUSEL_DECK', id })
+        void deleteCarouselDeckRow(id).catch((e) => reportWriteError('deleteCarouselDeck', e))
+      },
       getDraft: (id) => state.drafts.find((d) => d.id === id),
       getIdea: (id) => state.ideas.find((i) => i.id === id),
+      createResource: (input) => {
+        const id = crypto.randomUUID()
+        const resource: Resource = { ...input, id, createdAt: new Date().toISOString() }
+        dispatch({ type: 'ADD_RESOURCE', resource })
+        void insertResource(userId, resource).catch((e) => reportWriteError('createResource', e))
+        return id
+      },
+      deleteResource: (id) => {
+        dispatch({ type: 'DELETE_RESOURCE', id })
+        void deleteResource(id).catch((e) => reportWriteError('deleteResource', e))
+      },
+      getResource: (id) => state.resources.find((r) => r.id === id),
+      createBrainMaterialFromText: ({ kind, title, textContent }) => {
+        const material: BrainMaterial = {
+          id: crypto.randomUUID(),
+          kind,
+          title,
+          textContent,
+          filePath: null,
+          fileName: null,
+          sourceUrl: null,
+          createdAt: new Date().toISOString(),
+        }
+        dispatch({ type: 'ADD_BRAIN_MATERIAL', material })
+        void insertBrainMaterial(userId, material).catch((e) =>
+          reportWriteError('createBrainMaterialFromText', e),
+        )
+      },
+      createBrainMaterialFromFile: async (file, { kind, title }) => {
+        const filePath = await uploadBrainFile(userId, file)
+        const material: BrainMaterial = {
+          id: crypto.randomUUID(),
+          kind,
+          title,
+          textContent: null,
+          filePath,
+          fileName: file.name,
+          sourceUrl: null,
+          createdAt: new Date().toISOString(),
+        }
+        dispatch({ type: 'ADD_BRAIN_MATERIAL', material })
+        void insertBrainMaterial(userId, material).catch((e) =>
+          reportWriteError('createBrainMaterialFromFile', e),
+        )
+      },
+      addBrainMaterialLink: ({ kind, title, sourceUrl }) => {
+        const material: BrainMaterial = {
+          id: crypto.randomUUID(),
+          kind,
+          title,
+          textContent: null,
+          filePath: null,
+          fileName: null,
+          sourceUrl,
+          createdAt: new Date().toISOString(),
+        }
+        dispatch({ type: 'ADD_BRAIN_MATERIAL', material })
+        void insertBrainMaterial(userId, material).catch((e) => reportWriteError('addBrainMaterialLink', e))
+      },
+      deleteBrainMaterial: (id) => {
+        const material = state.brainMaterials.find((m) => m.id === id)
+        dispatch({ type: 'DELETE_BRAIN_MATERIAL', id })
+        void deleteBrainMaterialRow(id, material?.filePath ?? null).catch((e) =>
+          reportWriteError('deleteBrainMaterial', e),
+        )
+      },
+      importPosts: async (rows) => {
+        await upsertUploadedPosts(userId, rows)
+        const posts = await fetchPosts(userId)
+        dispatch({ type: 'SET_POSTS', posts })
+      },
+      generateAgentDraft: async (input) => {
+        const draft = await generateAgentDraftRequest(input)
+        dispatch({ type: 'ADD_DRAFT', draft })
+        return draft
+      },
+      recordAgentFeedback: (input) => {
+        void insertAgentFeedback(userId, input).catch((e) => reportWriteError('recordAgentFeedback', e))
+      },
     }),
     [state, loading, createDraft, userId],
   )

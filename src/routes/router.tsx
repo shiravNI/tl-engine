@@ -30,6 +30,9 @@ const CarouselEditorPage = lazy(() =>
 const NewsletterPage = lazy(() =>
   import('@/features/newsletter/NewsletterPage').then((m) => ({ default: m.NewsletterPage })),
 )
+const ResourcesPage = lazy(() =>
+  import('@/features/newsletter/ResourcesPage').then((m) => ({ default: m.ResourcesPage })),
+)
 const InsightsPostsPage = lazy(() =>
   import('@/features/insights/InsightsPostsPage').then((m) => ({ default: m.InsightsPostsPage })),
 )
@@ -37,6 +40,8 @@ const MilestonesPage = lazy(() =>
   import('@/features/milestones/MilestonesPage').then((m) => ({ default: m.MilestonesPage })),
 )
 const ArchivePage = lazy(() => import('@/features/archive/ArchivePage').then((m) => ({ default: m.ArchivePage })))
+const BrainPage = lazy(() => import('@/features/brain/BrainPage').then((m) => ({ default: m.BrainPage })))
+const OutputPage = lazy(() => import('@/features/output/OutputPage').then((m) => ({ default: m.OutputPage })))
 
 export const router = createBrowserRouter([
   {
@@ -93,11 +98,19 @@ export const router = createBrowserRouter([
           { path: 'carousel/:deckId', element: <CarouselEditorPage /> },
         ],
       },
-      { path: 'newsletter', element: <NewsletterPage /> },
+      {
+        path: 'newsletter',
+        children: [
+          { index: true, element: <NewsletterPage /> },
+          { path: 'resources', element: <ResourcesPage /> },
+        ],
+      },
       { path: 'insights', element: <Navigate to="/insights/posts" replace /> },
       { path: 'insights/posts', element: <InsightsPostsPage /> },
       { path: 'milestones', element: <MilestonesPage /> },
       { path: 'archive', element: <ArchivePage /> },
+      { path: 'brain', element: <BrainPage /> },
+      { path: 'output', element: <OutputPage /> },
       { path: 'dev/primitives', element: <PrimitivesSanityPage /> },
     ],
   },

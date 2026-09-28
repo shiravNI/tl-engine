@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ONBOARDING_PHASES, ONBOARDING_QUESTIONS, questionNumberLabel } from '@/data/onboardingCatalog'
+import { ONBOARDING_PHASES, getInterviewQuestions, questionNumberLabel } from '@/data/onboardingCatalog'
 import {
   fetchInterviewAnswers,
   upsertInterviewAnswer,
   upsertOnboardingState,
   upsertVoiceCard,
 } from '@/data/services/onboardingService'
-import { deriveVoiceCard, type InterviewAnswerInput } from '@/lib/voiceCard'
+import { deriveVoiceCard, readContentOrientation, type InterviewAnswerInput } from '@/lib/voiceCard'
 import { useAuth } from '@/state/AuthContext'
 import { Icon } from '@/components/icons/Icon'
 import { Button } from '@/components/primitives/Button'
@@ -36,8 +36,16 @@ export function InterviewPage() {
   const [freeText, setFreeText] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const question = ONBOARDING_QUESTIONS[exchangeIndex]
-  const isLast = exchangeIndex === ONBOARDING_QUESTIONS.length - 1
+  // Which Opinions & POV question set is active depends on the *persisted*
+  // answer to the orientation fork (`q_orientation`) — not the in-progress
+  // live selection, so the active list only ever changes once that
+  // question's own "Continue" has actually saved it. Avoids a circular
+  // dependency between "which question is active" and "what was just
+  // tapped on that same question."
+  const persistedOrientation = useMemo(() => readContentOrientation(Array.from(answers.values())), [answers])
+  const questions = useMemo(() => getInterviewQuestions(persistedOrientation), [persistedOrientation])
+  const question = questions[exchangeIndex]
+  const isLast = exchangeIndex === questions.length - 1
 
   useEffect(() => {
     if (!userId) return
@@ -45,12 +53,13 @@ export function InterviewPage() {
     fetchInterviewAnswers(userId).then((existing) => {
       if (cancelled) return
       const map = new Map(existing.map((a) => [a.questionId, a] as const))
-      const firstUnanswered = ONBOARDING_QUESTIONS.findIndex((q) => {
+      const activeQuestions = getInterviewQuestions(readContentOrientation(existing))
+      const firstUnanswered = activeQuestions.findIndex((q) => {
         const a = map.get(q.id)
         return !a || (!a.selectedOptionId && !a.freeTextAnswer?.trim())
       })
       setAnswers(map)
-      setExchangeIndex(firstUnanswered === -1 ? ONBOARDING_QUESTIONS.length - 1 : firstUnanswered)
+      setExchangeIndex(firstUnanswered === -1 ? activeQuestions.length - 1 : firstUnanswered)
       setLoaded(true)
     })
     return () => {
@@ -79,7 +88,37 @@ export function InterviewPage() {
     return Array.from(merged.values())
   }, [answers, question.id, selectedOption, freeText])
 
-  const derivedCard = useMemo(() => deriveVoiceCard(livePreviewAnswers), [livePreviewAnswers])
+  const derivedCard = useMemo(
+    () => deriveVoiceCard(livePreviewAnswers, questions),
+    [livePreviewAnswers, questions],
+  )
+
+  // "Say more" is required, not optional — a tap-only answer with no
+  // elaboration is exactly the "thin voice card" the interview exists to
+  // avoid producing.
+  const canContinue = Boolean(selectedOption) && freeText.trim().length > 0
+
+  const currentPhaseTitle = ONBOARDING_PHASES.find((p) => p.id === question.phaseId)?.title ?? ''
+
+  // Real per-phase progress instead of a hardcoded bar — phases 5-7 have no
+  // interactive questions yet in this build, so they honestly read as 0%
+  // rather than pretending to be partially done.
+  const phaseFillPct = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const phase of ONBOARDING_PHASES) {
+      const phaseQuestions = questions.filter((q) => q.phaseId === phase.id)
+      if (phaseQuestions.length === 0) {
+        map.set(phase.id, 0)
+        continue
+      }
+      const answeredCount = phaseQuestions.filter((q) => {
+        const a = answers.get(q.id)
+        return Boolean(a && (a.selectedOptionId || a.freeTextAnswer?.trim()))
+      }).length
+      map.set(phase.id, Math.round((answeredCount / phaseQuestions.length) * 100))
+    }
+    return map
+  }, [questions, answers])
 
   async function persistCurrentAnswer(): Promise<Map<string, InterviewAnswerInput>> {
     if (!userId) return answers
@@ -93,13 +132,15 @@ export function InterviewPage() {
     nextAnswers.set(question.id, answer)
     setAnswers(nextAnswers)
 
-    const card = deriveVoiceCard(Array.from(nextAnswers.values()))
+    const nextAnswerList = Array.from(nextAnswers.values())
+    const card = deriveVoiceCard(nextAnswerList, getInterviewQuestions(readContentOrientation(nextAnswerList)))
     await upsertVoiceCard(userId, {
       roleLabel: profile?.title ?? '',
       povFingerprint: card.povFingerprint,
       completenessPct: card.completenessPct,
       completenessNote: card.completenessNote,
       opinions: card.opinions,
+      contentOrientation: card.contentOrientation,
     })
     return nextAnswers
   }
@@ -151,24 +192,28 @@ export function InterviewPage() {
 
       <div className="flex-none border-b border-border bg-surface px-10 pt-5">
         <div className="mb-2 flex max-w-[980px] items-center gap-1.5">
-          {ONBOARDING_PHASES.map((phase, i) => (
+          {ONBOARDING_PHASES.map((phase) => (
             <div key={phase.id} className="h-[5px] flex-1 overflow-hidden rounded-full bg-skeleton">
-              <div
-                className="h-full bg-accent"
-                style={{ width: i < 3 ? '100%' : i === 3 ? '55%' : '0%' }}
-              />
+              <div className="h-full bg-accent" style={{ width: `${phaseFillPct.get(phase.id) ?? 0}%` }} />
             </div>
           ))}
         </div>
         <div className="flex max-w-[980px] justify-between pb-3">
-          {ONBOARDING_PHASES.map((phase, i) => (
-            <span
-              key={phase.id}
-              className={cx('text-[12px]', i === 3 ? 'font-bold text-ink' : i < 3 ? 'font-semibold text-accent-dark' : 'text-muted')}
-            >
-              {phase.title.length > 18 ? phase.id : phase.title}
-            </span>
-          ))}
+          {ONBOARDING_PHASES.map((phase) => {
+            const isCurrent = phase.id === question.phaseId
+            const isDone = (phaseFillPct.get(phase.id) ?? 0) >= 100
+            return (
+              <span
+                key={phase.id}
+                className={cx(
+                  'text-[12px]',
+                  isCurrent ? 'font-bold text-ink' : isDone ? 'font-semibold text-accent-dark' : 'text-muted',
+                )}
+              >
+                {phase.title.length > 18 ? phase.id : phase.title}
+              </span>
+            )
+          })}
         </div>
       </div>
 
@@ -176,7 +221,7 @@ export function InterviewPage() {
         <div className="flex max-w-[700px] flex-1 flex-col gap-5 overflow-auto px-10 py-7">
           <div>
             <p className="mb-2 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
-              Opinions &amp; POV · question {questionNumberLabel(exchangeIndex)}
+              {currentPhaseTitle} · question {questionNumberLabel(exchangeIndex, questions.length)}
             </p>
             <h1 className="text-[25px] font-bold tracking-tight">No overthinking — first gut reaction.</h1>
             <p className="mt-1.5 text-[13px] text-body">Tap one. You can always add nuance right after.</p>
@@ -217,6 +262,11 @@ export function InterviewPage() {
             )}
 
             <div className="pl-9">
+              <div className="mb-1 flex items-baseline justify-between">
+                <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
+                  Required — a tap alone makes a thin Voice Card
+                </span>
+              </div>
               <textarea
                 value={freeText}
                 onChange={(e) => setFreeText(e.target.value)}
@@ -235,13 +285,13 @@ export function InterviewPage() {
             >
               Back
             </Button>
-            <Button variant="primary" onClick={() => void handleContinue()} disabled={saving}>
+            <Button variant="primary" onClick={() => void handleContinue()} disabled={saving || !canContinue}>
               {saving ? 'Saving…' : isLast ? 'Finish' : 'Continue'}
               <Icon name="chev" className="h-[15px] w-[15px]" />
             </Button>
             <span className="text-[12px] text-muted">
-              {questionNumberLabel(exchangeIndex)} — we keep going until your POV is genuinely clear, not
-              until a counter hits zero.
+              {questionNumberLabel(exchangeIndex, questions.length)} — we keep going until your POV is
+              genuinely clear, not until a counter hits zero.
             </span>
           </div>
         </div>

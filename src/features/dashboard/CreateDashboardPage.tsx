@@ -7,43 +7,48 @@ import { Button } from '@/components/primitives/Button'
 import { Checkbox } from '@/components/primitives/Checkbox'
 import { ProgressBar } from '@/components/primitives/ProgressBar'
 import { DashedPlaceholder } from '@/components/primitives/DashedPlaceholder'
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRoot,
+  DropdownMenuTrigger,
+} from '@/components/primitives/DropdownMenu'
+import { IdeaCard } from '@/components/content/IdeaCard'
+import { DraftCard } from '@/components/content/DraftCard'
 import { useContent } from '@/state/ContentContext'
 import { useGamification, countDoneTasks } from '@/state/GamificationContext'
 import { cx } from '@/lib/cx'
+import { pickPromptStarters } from '@/data/promptStarters'
+import { getRoastTier } from '@/lib/roast'
 import type { Idea } from '@/data/types'
 
 const VISIBLE_IDEAS = 4
 
-function IdeaCard({ idea }: { idea: Idea }) {
-  return (
-    <Card className="flex flex-col gap-1.5 p-3.5">
-      <p className="text-[13px] font-semibold leading-tight text-ink">{idea.text}</p>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        {idea.pillar ? (
-          <Pill tone="accent">Pillar: {idea.pillar}</Pill>
-        ) : (
-          <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Untagged</span>
-        )}
-        {idea.source === 'voice_note' && (
-          <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Voice note</span>
-        )}
-        {idea.source === 'slack' && (
-          <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Slack</span>
-        )}
-      </div>
-    </Card>
-  )
-}
-
 export function CreateDashboardPage() {
   const navigate = useNavigate()
-  const { ideas, drafts, posts, addIdea, setDraftStage, runBsCheck, loading } = useContent()
+  const { ideas, drafts, posts, addIdea, setDraftStage, runRoastCheck, generateAgentDraft, loading } = useContent()
   const { tasks, toggleTask, addTask, badges } = useGamification()
   const [showAllIdeas, setShowAllIdeas] = useState(false)
   const [addingIdea, setAddingIdea] = useState(false)
   const [ideaDraftText, setIdeaDraftText] = useState('')
   const [addingTask, setAddingTask] = useState(false)
   const [taskDraftText, setTaskDraftText] = useState('')
+  const [promptStarters, setPromptStarters] = useState(() => pickPromptStarters())
+  const [draftingArticle, setDraftingArticle] = useState(false)
+  const [draftError, setDraftError] = useState<string | null>(null)
+
+  async function draftArticleForMe() {
+    setDraftingArticle(true)
+    setDraftError(null)
+    try {
+      const draft = await generateAgentDraft({ format: 'article' })
+      navigate(`/create/drafts/${draft.id}`)
+    } catch (e) {
+      setDraftError(e instanceof Error ? e.message : 'Drafting failed.')
+    } finally {
+      setDraftingArticle(false)
+    }
+  }
 
   const activeIdeas = ideas.filter((i) => !i.archivedAt)
   const draftStage = drafts.filter((d) => d.stage === 'draft')
@@ -103,15 +108,25 @@ export function CreateDashboardPage() {
           </div>
         )}
         <div className="w-full max-w-[720px]">
-          <p className="mb-3 text-center font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
-            Or start from a prompt
-          </p>
+          <div className="mb-3 flex items-center justify-center gap-2">
+            <p className="text-center font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
+              Or start from a prompt
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                setPromptStarters((current) =>
+                  pickPromptStarters(current.length, current.map((p) => p.q)),
+                )
+              }
+              className="flex items-center gap-1 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-accent-dark hover:underline"
+            >
+              <Icon name="refresh" className="h-[11px] w-[11px]" />
+              Refresh
+            </button>
+          </div>
           <div className="flex gap-3">
-            {[
-              { q: 'What did you change your mind about this year?', hint: 'Reversals travel further than takes.' },
-              { q: 'What number do you know that others don’t?', hint: 'Proprietary data clears the BS check instantly.' },
-              { q: 'What does your team argue about?', hint: 'Live tension beats settled wisdom.' },
-            ].map((p) => (
+            {promptStarters.map((p) => (
               <DashedPlaceholder
                 key={p.q}
                 className="flex-1 cursor-pointer flex-col items-start gap-1.5 p-3.5 text-left"
@@ -141,12 +156,30 @@ export function CreateDashboardPage() {
               <Icon name="bulb" className="h-[15px] w-[15px]" />
               Brain dump
             </Button>
-            <Button variant="primary" onClick={() => navigate('/create/drafts/new')}>
-              <Icon name="plus" className="h-[15px] w-[15px]" />
-              New draft
-            </Button>
+            <DropdownMenuRoot>
+              <DropdownMenuTrigger asChild>
+                <Button variant="primary">
+                  <Icon name="plus" className="h-[15px] w-[15px]" />
+                  New draft
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onSelect={() => navigate('/create/drafts/new')}>Post</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate('/create/drafts/new?format=article')}>
+                  Article — start from scratch
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void draftArticleForMe()} disabled={draftingArticle}>
+                  {draftingArticle ? 'Drafting…' : 'Article — draft it for me'}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenuRoot>
           </div>
         </div>
+        {draftError && (
+          <div className="mt-3 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-[13px] text-danger">
+            {draftError}
+          </div>
+        )}
         <div className="mt-5 flex gap-5">
           <div className="border-b-2 border-accent pb-3 text-[13px] font-semibold text-ink">Create</div>
           <button
@@ -254,42 +287,31 @@ export function CreateDashboardPage() {
             <h3 className="text-[14px] font-semibold">Drafts</h3>
             <Pill>{draftStage.length}</Pill>
           </div>
-          {draftStage.map((draft) => (
-            <Card key={draft.id} className="flex flex-col gap-2.5 p-3.5">
-              <p className="text-[13.5px] font-semibold leading-tight">{draft.title}</p>
-              <p className="text-[12px] text-muted">{draft.excerpt}</p>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {draft.bsCheck === 'passed' && (
-                  <Pill tone="success">
-                    <Icon name="shield" className="h-3 w-3" /> BS check: passed
-                  </Pill>
-                )}
-                {draft.bsCheck === 'needs_review' && (
-                  <Pill tone="warn" className="max-w-full" title={draft.bsCheckNote || undefined}>
-                    <Icon name="alert" className="h-3 w-3 shrink-0" />
-                    <span className="min-w-0 truncate">{draft.bsCheckNote || 'Needs review'}</span>
-                  </Pill>
-                )}
-                <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
-                  Voice {draft.voiceMatch}%
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => navigate(`/create/drafts/${draft.id}`)}>
-                  Edit
-                </Button>
-                {draft.bsCheck === 'passed' ? (
-                  <Button size="sm" variant="primary" onClick={() => setDraftStage(draft.id, 'scheduled')}>
-                    Mark scheduled to post
-                  </Button>
-                ) : (
-                  <Button size="sm" variant="secondary" onClick={() => runBsCheck(draft.id)}>
-                    Run BS check
-                  </Button>
-                )}
-              </div>
-            </Card>
-          ))}
+          {draftStage.map((draft) => {
+            const roastTier = getRoastTier(draft.slopScore)
+            return (
+              <DraftCard
+                key={draft.id}
+                draft={draft}
+                actions={
+                  <>
+                    <Button size="sm" variant="secondary" onClick={() => navigate(`/create/drafts/${draft.id}`)}>
+                      Edit
+                    </Button>
+                    {roastTier === 'clear' ? (
+                      <Button size="sm" variant="primary" onClick={() => setDraftStage(draft.id, 'scheduled')}>
+                        Mark scheduled to post
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="secondary" onClick={() => runRoastCheck(draft.id)}>
+                        Roast this draft
+                      </Button>
+                    )}
+                  </>
+                }
+              />
+            )
+          })}
           {draftStage.length === 0 && (
             <DashedPlaceholder className="p-4 text-center">No drafts waiting</DashedPlaceholder>
           )}

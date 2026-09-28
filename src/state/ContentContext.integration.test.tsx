@@ -67,13 +67,13 @@ describe('ContentContext (through the real provider)', () => {
     await waitFor(() => expect(result.current.drafts.length).toBe(initialDraftCount + 1))
     expect(result.current.getDraft(newId)).toMatchObject({ title: 'Drafted from a test', stage: 'draft' })
 
-    // A brand-new draft can't jump straight to scheduled without passing
-    // the BS check first — run it, then verify the draft ends up on the
-    // schedule with a real post created once it's actually published.
+    // Roast the draft — its own seeded paragraph is clean (no clichés, no
+    // metric either), so it should score 0 / clear with no flags.
     act(() => {
-      result.current.runBsCheck(newId)
+      result.current.runRoastCheck(newId)
     })
-    await waitFor(() => expect(result.current.getDraft(newId)?.bsCheck).toBe('passed'))
+    await waitFor(() => expect(result.current.getDraft(newId)?.roastVerdict).toBeTruthy())
+    expect(result.current.getDraft(newId)?.slopScore).toBe(0)
 
     act(() => {
       result.current.setDraftStage(newId, 'scheduled')
@@ -88,5 +88,31 @@ describe('ContentContext (through the real provider)', () => {
     await waitFor(() => expect(result.current.getDraft(newId)?.stage).toBe('published'))
     expect(result.current.posts.length).toBe(postsBefore + 1)
     expect(result.current.posts[0]).toMatchObject({ draftId: newId, title: 'Drafted from a test' })
+  })
+
+  it('creates a resource, reads it back via getResource, then deletes it', async () => {
+    const { result } = renderHook(() => useContent(), { wrapper })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.resources).toHaveLength(0)
+
+    let newId = ''
+    act(() => {
+      newId = result.current.createResource({
+        url: 'https://example.com/report',
+        title: 'A test resource',
+        note: '',
+        pillar: null,
+        tags: [],
+      })
+    })
+
+    await waitFor(() => expect(result.current.resources.length).toBe(1))
+    expect(result.current.getResource(newId)).toMatchObject({ url: 'https://example.com/report', title: 'A test resource' })
+
+    act(() => {
+      result.current.deleteResource(newId)
+    })
+    await waitFor(() => expect(result.current.resources.length).toBe(0))
+    expect(result.current.getResource(newId)).toBeUndefined()
   })
 })

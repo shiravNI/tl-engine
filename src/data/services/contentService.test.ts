@@ -56,10 +56,12 @@ describe('contentService — drafts row <-> camelCase mapper', () => {
     excerpt: 'first paragraph',
     pillar: 'Org' as const,
     stage: 'draft',
-    bs_check: 'passed',
-    bs_check_note: 'Looks good.',
+    format: 'post',
+    slop_score: 3,
+    roast_verdict: 'Solid bones, but a few corporate tics snuck in.',
+    roast_flags: [{ quote: 'first paragraph', comment: 'A specific roast.' }],
     voice_match: 72,
-    ai_texture: 3,
+    origin: 'user',
     source_idea_id: 'idea_1',
     source_type: 'idea',
     source_label: 'A test idea',
@@ -79,10 +81,11 @@ describe('contentService — drafts row <-> camelCase mapper', () => {
       id: 'draft_1',
       title: 'A test draft',
       paragraphs: ['first paragraph', 'second paragraph'],
-      bsCheck: 'passed',
-      bsCheckNote: 'Looks good.',
+      format: 'post',
+      slopScore: 3,
+      roastVerdict: 'Solid bones, but a few corporate tics snuck in.',
+      roastFlags: [{ quote: 'first paragraph', comment: 'A specific roast.' }],
       voiceMatch: 72,
-      aiTexture: 3,
       sourceIdeaId: 'idea_1',
       sourceType: 'idea',
       sourceLabel: 'A test idea',
@@ -94,6 +97,13 @@ describe('contentService — drafts row <-> camelCase mapper', () => {
   it('round-trips draftToInsertRow(userId, rowToDraft(row)) back to the original row plus user_id', () => {
     const draft = rowToDraft(draftRow)
     expect(draftToInsertRow(USER_ID, draft)).toEqual({ ...draftRow, user_id: USER_ID })
+  })
+
+  it('maps the article format through both directions', () => {
+    const articleRow = { ...draftRow, id: 'draft_2', format: 'article' }
+    const draft = rowToDraft(articleRow)
+    expect(draft.format).toBe('article')
+    expect(draftToInsertRow(USER_ID, draft)).toEqual({ ...articleRow, user_id: USER_ID })
   })
 })
 

@@ -46,7 +46,12 @@ export interface Idea {
   archivedAt?: string
 }
 
-export type BsCheckStatus = 'passed' | 'needs_review' | 'not_run'
+export interface RoastFlag {
+  /** Exact phrase/sentence pulled from the draft's own paragraphs. */
+  quote: string
+  /** The specific roast of that phrase — never a generic note. */
+  comment: string
+}
 
 export interface ChecklistState {
   hookEarnsSeeMore: boolean
@@ -54,6 +59,14 @@ export interface ChecklistState {
   visualAttached: boolean
   hashtagsAdded: boolean
 }
+
+/** `'post'` is the default, short-form LinkedIn-shaped draft (char-capped,
+ * title auto-derived from the first line). `'article'` is long-form — same
+ * pipeline (stage, BS-check, voice-match, humanize), only the composer's
+ * layout and a display badge differ. Deliberately a field on `Draft`, not a
+ * parallel type — see Carousel's `VideoItem`/`CarouselDeck` split for the
+ * data-model duplication this avoids. */
+export type DraftFormat = 'post' | 'article'
 
 export interface Draft {
   id: string
@@ -63,12 +76,21 @@ export interface Draft {
   excerpt: string
   pillar: Pillar | null
   stage: ContentStage
-  bsCheck: BsCheckStatus
-  bsCheckNote: string
+  format: DraftFormat
+  /** `'user'` for anything the cast member started themselves (every
+   * draft this build's UI creates); `'agent'` is reserved for the AI
+   * drafting agent (Output tab) — out of scope here, never set by this
+   * build. */
+  origin: 'user' | 'agent'
+  /** 0-10, LOWER is better — the merged "Roast" quality check's score. */
+  slopScore: number
+  /** One punchy overall line, picked by score tier. */
+  roastVerdict: string
+  /** Specific quoted+roasted lines found in this draft; [] if none found. */
+  roastFlags: RoastFlag[]
   voiceMatch: number
-  aiTexture: number
   sourceIdeaId?: string
-  sourceType?: 'idea' | 'insight' | 'newsletter'
+  sourceType?: 'idea' | 'insight' | 'newsletter' | 'resource'
   sourceLabel?: string
   imageUrl?: string
   imageFileName?: string
@@ -123,7 +145,7 @@ export interface StreakState {
   nextMilestoneDeadline: string
 }
 
-export type ChatAuthorType = 'user' | 'director' | 'system'
+export type ChatAuthorType = 'user' | 'assistant' | 'system'
 
 export interface ChatMessage {
   id: string
@@ -135,16 +157,17 @@ export interface ChatMessage {
   text: string
   timestamp: string
   kind: 'text' | 'draft_offer' | 'help_flag' | 'system_note'
+  /** For a `draft_offer` message — resolve the draft's own title/voiceMatch
+   * live via `useContent().getDraft(draftId)` rather than reading a
+   * denormalized copy off the message (this row deliberately carries
+   * neither, to avoid drift from the draft's real, current values). */
   draftId?: string
-  voiceMatch?: number
-  draftTitle?: string
 }
 
 export interface Conversation {
   id: string
-  directorId: string
-  directorName: string
-  directorInitials: string
+  assistantName: string
+  assistantInitials: string
   status: 'online' | 'offline'
   lastActivitySummary: string
 }
@@ -239,6 +262,11 @@ export interface NewsletterStory {
   headline: string
   sourceLabel: string
   matchesLabel: string
+  /** Which real record this story is — lets "Turn into draft" seed from
+   * the actual idea/resource via `composerSeed.ts`, never an inline
+   * ad hoc object. */
+  refType: 'idea' | 'resource'
+  refId: string
 }
 
 export interface NewsletterIssue {
@@ -247,7 +275,7 @@ export interface NewsletterIssue {
   headline: string
   stories: NewsletterStory[]
   statOfDay: { value: string; caption: string }
-  prewrittenDraft: { hook: string; note: string; seedIdeaId?: string }
+  prewrittenDraft: { hook: string; note: string; seedIdeaId?: string; seedResourceId?: string }
   pastIssues: { label: string; summary: string }[]
 }
 
@@ -277,6 +305,37 @@ export interface OnboardingPhase {
   description: string
   estimate: string
   status: 'done' | 'active' | 'upcoming'
+}
+
+/** A dump of interesting links people find, usable later in a draft — lives
+ * under Newsletter. Hard-delete only for v1 (no soft-archive lifecycle). */
+export interface Resource {
+  id: string
+  url: string
+  title: string
+  note: string
+  pillar: Pillar | null
+  tags: string[]
+  createdAt: string
+}
+
+/** Reference material the cast member feeds in — their own past posts (for
+ * voice mining), posts they admire (for style reference), or general
+ * project/reference docs. Distinct from `Resource` (link-dump seeds for a
+ * single draft): this is context for the Voice Card and, later, the AI
+ * drafting agent's research pass. Either `textContent` (pasted) or
+ * `filePath` (uploaded) is set, never both. */
+export type BrainMaterialKind = 'own_post' | 'admired_post' | 'reference_doc'
+
+export interface BrainMaterial {
+  id: string
+  kind: BrainMaterialKind
+  title: string
+  textContent: string | null
+  filePath: string | null
+  fileName: string | null
+  sourceUrl: string | null
+  createdAt: string
 }
 
 export type ArchiveItemType = 'idea' | 'draft' | 'post'

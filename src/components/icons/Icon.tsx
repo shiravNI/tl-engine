@@ -26,6 +26,7 @@ import {
   MessageCircle,
   PenLine,
   Plus,
+  RotateCw,
   Scissors,
   Search,
   Send,
@@ -83,6 +84,7 @@ const registry = {
   scissors: Scissors,
   folder: Folder,
   upload: Upload,
+  refresh: RotateCw,
   layers: Layers,
   close: X,
 } satisfies Record<string, ComponentType<LucideProps>>

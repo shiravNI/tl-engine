@@ -52,7 +52,7 @@ export function TopBar() {
           <div className="px-2.5 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
             Notifications
           </div>
-          <DropdownMenuItem>Dana L. replied in chat</DropdownMenuItem>
+          <DropdownMenuItem>The Assistant replied in chat</DropdownMenuItem>
           <DropdownMenuItem>Your Thursday post is scheduled</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenuRoot>

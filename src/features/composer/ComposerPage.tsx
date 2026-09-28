@@ -12,9 +12,10 @@ import { Checkbox } from '@/components/primitives/Checkbox'
 import { Disclosure } from '@/components/primitives/Disclosure'
 import { useContent } from '@/state/ContentContext'
 import { useChat } from '@/state/ChatContext'
-import { seedFromIdea, seedFromInsight, seedFromNewsletter } from '@/lib/composerSeed'
+import { seedFromIdea, seedFromInsight, seedFromNewsletter, seedFromResource } from '@/lib/composerSeed'
 import { insightSnapshot } from '@/data/fixtures/insights'
 import { newsletterIssue } from '@/data/fixtures/newsletter'
+import { getRoastTier } from '@/lib/roast'
 import { cx } from '@/lib/cx'
 
 const CHAR_LIMIT = 3000
@@ -23,8 +24,16 @@ export function ComposerPage() {
   const { draftId } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { getDraft, createDraft, updateDraft, runBsCheck, humanizeDraft, toggleChecklistItem, setDraftStage, getIdea } =
-    useContent()
+  const {
+    getDraft,
+    createDraft,
+    updateDraft,
+    runRoastCheck,
+    toggleChecklistItem,
+    setDraftStage,
+    getIdea,
+    getResource,
+  } = useContent()
   const { openBubble } = useChat()
   const seededRef = useRef(false)
   const [resolvedId, setResolvedId] = useState<string | undefined>(draftId)
@@ -40,6 +49,8 @@ export function ComposerPage() {
     const fromIdea = searchParams.get('fromIdea')
     const fromInsight = searchParams.get('fromInsight')
     const fromNewsletter = searchParams.get('fromNewsletter')
+    const fromResource = searchParams.get('fromResource')
+    const format = searchParams.get('format') === 'article' ? 'article' : undefined
 
     let seed
     if (fromIdea) {
@@ -49,17 +60,22 @@ export function ComposerPage() {
       seed = seedFromInsight(insightSnapshot.suggestedMove)
     } else if (fromNewsletter) {
       seed = seedFromNewsletter(newsletterIssue)
+    } else if (fromResource) {
+      const resource = getResource(fromResource)
+      if (resource) seed = seedFromResource(resource)
     }
     if (!seed) {
       seed = { title: 'Untitled draft', paragraphs: [''], sourceType: undefined, sourceLabel: undefined, sourceIdeaId: undefined, pillar: null }
     }
+    seed.format = format
     const id = createDraft(seed)
     setResolvedId(id)
     navigate(`/create/drafts/${id}`, { replace: true })
-  }, [draftId, searchParams, createDraft, getIdea, navigate])
+  }, [draftId, searchParams, createDraft, getIdea, getResource, navigate])
 
   const draft = resolvedId ? getDraft(resolvedId) : undefined
   const sourceIdea = draft?.sourceIdeaId ? getIdea(draft.sourceIdeaId) : undefined
+  const isArticle = draft?.format === 'article'
 
   const initialContent = useMemo(
     () => (draft ? draft.paragraphs.map((p) => `<p>${p}</p>`).join('') : '<p></p>'),
@@ -69,22 +85,30 @@ export function ComposerPage() {
 
   const editor = useEditor(
     {
-      extensions: [StarterKit, CharacterCount.configure({ limit: CHAR_LIMIT })],
+      extensions: isArticle ? [StarterKit] : [StarterKit, CharacterCount.configure({ limit: CHAR_LIMIT })],
       content: initialContent,
       onUpdate: ({ editor }) => {
         if (!resolvedId) return
         const paragraphs = editor.getText({ blockSeparator: '\n\n' }).split('\n\n')
-        updateDraft(resolvedId, { paragraphs, title: paragraphs[0]?.slice(0, 120) || draft?.title })
+        // Articles have a real title field (below) — don't clobber it with
+        // an auto-derived first line the way posts do.
+        updateDraft(
+          resolvedId,
+          isArticle ? { paragraphs } : { paragraphs, title: paragraphs[0]?.slice(0, 120) || draft?.title },
+        )
       },
     },
-    [draft?.id],
+    [draft?.id, isArticle],
   )
 
   if (!draft || !editor) {
     return <div className="p-8 text-[13px] text-muted">Loading draft…</div>
   }
 
-  const charCount = editor.storage.characterCount.characters()
+  const charCount = editor.storage.characterCount?.characters()
+  const roastTier = getRoastTier(draft.slopScore)
+  const roastTone = roastTier === 'clear' ? 'success' : roastTier === 'flagged' ? 'warn' : 'danger'
+  const roastTierLabel = roastTier === 'clear' ? 'Clear' : roastTier === 'flagged' ? 'Flagged' : 'Roasted'
 
   return (
     <div className="flex h-full flex-col">
@@ -112,6 +136,51 @@ export function ComposerPage() {
 
       <div className="flex min-h-0 flex-1 gap-5 overflow-auto px-7 py-6">
         <div className="flex min-w-0 flex-[1.6] flex-col gap-3.5">
+          {isArticle && (
+            <input
+              value={draft.title}
+              onChange={(e) => updateDraft(draft.id, { title: e.target.value })}
+              placeholder="Article title…"
+              className="rounded-lg border border-border bg-surface px-4 py-3 font-display text-[22px] font-bold text-ink outline-none focus:border-accent"
+            />
+          )}
+
+          {isArticle && (
+            <Card className="flex flex-col gap-2.5 p-4">
+              <div className="flex items-center justify-between">
+                <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Cover image</p>
+                <span className="text-[12px] text-muted">1200×627 recommended</span>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="flex w-40 flex-none flex-col gap-1.5">
+                  <div className="relative flex aspect-[1200/627] items-center justify-center rounded-lg border border-dashed border-border bg-oat text-muted-2">
+                    <Icon name="video" className="h-5 w-5" />
+                    {draft.imageFileName && (
+                      <button
+                        type="button"
+                        className="absolute right-1.5 top-1.5 rounded-md border border-border bg-cream px-[7px] py-[3px] text-[10px] font-semibold leading-none text-ink"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-[11px] text-muted">{draft.imageFileName ?? 'no image yet'}</span>
+                </div>
+                <div className="flex flex-1 flex-col gap-2">
+                  <p className="text-[13px] text-body">
+                    This is what shows at the top of the article — check it's legible small before you post.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary">
+                      <Icon name="upload" className="h-3.5 w-3.5" />
+                      Replace image
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          )}
+
           <Card className="flex min-h-[360px] flex-1 flex-col">
             <div className="flex items-center gap-1.5 border-b border-border-soft px-4 py-2.5">
               <Button size="sm" variant="ghost" className="font-bold" onClick={() => editor.chain().focus().toggleBold().run()}>
@@ -125,55 +194,61 @@ export function ComposerPage() {
               </Button>
               <div className="mx-1 h-[18px] w-px bg-border-soft" />
               <span className="text-[12px] text-muted">
-                Every line break here is a real paragraph — matches how it'll paste into LinkedIn.
+                {isArticle
+                  ? 'No length limit — write it as long as it needs to be.'
+                  : "Every line break here is a real paragraph — matches how it'll paste into LinkedIn."}
               </span>
               <div className="flex-1" />
-              <span className="text-[12px] text-muted">
-                {charCount} / {CHAR_LIMIT}
-              </span>
+              {!isArticle && (
+                <span className="text-[12px] text-muted">
+                  {charCount} / {CHAR_LIMIT}
+                </span>
+              )}
             </div>
             <div className="flex-1 overflow-auto px-5 py-4">
               <EditorContent editor={editor} className="tl-editor text-[15px] leading-relaxed text-ink" />
             </div>
           </Card>
 
-          <Card className="flex flex-col gap-2.5 p-4">
-            <div className="flex items-center justify-between">
-              <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Image for this post</p>
-              <span className="text-[12px] text-muted">1200×627 recommended</span>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="flex w-40 flex-none flex-col gap-1.5">
-                <div className="relative flex aspect-[1200/627] items-center justify-center rounded-lg border border-dashed border-border bg-oat text-muted-2">
-                  <Icon name="video" className="h-5 w-5" />
-                  {draft.imageFileName && (
-                    <button
-                      type="button"
-                      className="absolute right-1.5 top-1.5 rounded-md border border-border bg-cream px-[7px] py-[3px] text-[10px] font-semibold leading-none text-ink"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-                <span className="text-[11px] text-muted">{draft.imageFileName ?? 'no image yet'}</span>
+          {!isArticle && (
+            <Card className="flex flex-col gap-2.5 p-4">
+              <div className="flex items-center justify-between">
+                <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Image for this post</p>
+                <span className="text-[12px] text-muted">1200×627 recommended</span>
               </div>
-              <div className="flex flex-1 flex-col gap-2">
-                <p className="text-[13px] text-body">
-                  This is exactly what shows in-feed — check it's legible small before you post.
-                </p>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="secondary">
-                    <Icon name="upload" className="h-3.5 w-3.5" />
-                    Replace image
-                  </Button>
-                  <Button size="sm" variant="secondary" onClick={() => navigate('/create/carousel')}>
-                    <Icon name="layers" className="h-3.5 w-3.5" />
-                    Use a carousel instead
-                  </Button>
+              <div className="flex items-start gap-3">
+                <div className="flex w-40 flex-none flex-col gap-1.5">
+                  <div className="relative flex aspect-[1200/627] items-center justify-center rounded-lg border border-dashed border-border bg-oat text-muted-2">
+                    <Icon name="video" className="h-5 w-5" />
+                    {draft.imageFileName && (
+                      <button
+                        type="button"
+                        className="absolute right-1.5 top-1.5 rounded-md border border-border bg-cream px-[7px] py-[3px] text-[10px] font-semibold leading-none text-ink"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-[11px] text-muted">{draft.imageFileName ?? 'no image yet'}</span>
+                </div>
+                <div className="flex flex-1 flex-col gap-2">
+                  <p className="text-[13px] text-body">
+                    This is exactly what shows in-feed — check it's legible small before you post.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary">
+                      <Icon name="upload" className="h-3.5 w-3.5" />
+                      Replace image
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => navigate('/create/carousel')}>
+                      <Icon name="layers" className="h-3.5 w-3.5" />
+                      Use a carousel instead
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+          )}
 
           {sourceIdea && (
             <Card className="flex items-center gap-2.5 p-3.5">
@@ -191,48 +266,53 @@ export function ComposerPage() {
             <h3 className="text-[14px] font-semibold">Quality checks</h3>
 
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5">
-                <Icon
-                  name={draft.bsCheck === 'passed' ? 'check' : draft.bsCheck === 'needs_review' ? 'alert' : 'shield'}
+              <div className="flex items-baseline gap-1.5">
+                <span
                   className={cx(
-                    'h-3.5 w-3.5',
-                    draft.bsCheck === 'passed'
+                    'text-[22px] font-bold leading-none',
+                    roastTone === 'success'
                       ? 'text-success-fg'
-                      : draft.bsCheck === 'needs_review'
+                      : roastTone === 'warn'
                         ? 'text-warn-fg'
-                        : 'text-muted',
+                        : 'text-danger-fg',
                   )}
-                />
-                <span className="text-[12px] font-semibold text-body">
-                  BS check{draft.bsCheck === 'passed' ? ': green light' : draft.bsCheck === 'needs_review' ? ': review' : ''}
+                >
+                  {draft.slopScore}
                 </span>
+                <span className="text-[12px] text-muted">/10 slop</span>
               </div>
               <div className="flex items-baseline gap-1">
                 <span className="text-[12px] text-muted">Voice</span>
                 <span className="text-[13px] font-bold text-accent-dark">{draft.voiceMatch}%</span>
               </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-[12px] text-muted">AI texture</span>
-                <span className="text-[13px] font-bold text-success-fg">{draft.aiTexture}/10</span>
-              </div>
             </div>
 
-            <Disclosure label="Show check details">
+            <p className="text-[13px] font-semibold text-body">
+              {draft.roastVerdict || 'Not roasted yet — run the check to see how this really reads.'}
+            </p>
+
+            <Disclosure label="Show roast details">
               <div className="flex flex-col gap-3.5">
                 <div>
                   <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-[12px] font-semibold text-body">BS check</span>
-                    {draft.bsCheck === 'passed' && (
-                      <Pill className="border-transparent bg-success-fg text-cream">Green light</Pill>
-                    )}
-                    {draft.bsCheck === 'needs_review' && <Pill tone="warn">Needs review</Pill>}
+                    <span className="text-[12px] font-semibold text-body">Roast</span>
+                    <Pill tone={roastTone}>{roastTierLabel}</Pill>
                   </div>
-                  {draft.bsCheckNote ? (
-                    <p className="text-[12px] text-muted">{draft.bsCheckNote}</p>
+                  {draft.roastFlags.length > 0 ? (
+                    <div className="flex flex-col gap-2">
+                      {draft.roastFlags.map((flag, i) => (
+                        <div key={i} className="rounded-lg border border-border-soft bg-oat p-2.5">
+                          <p className="text-[12px] italic text-body">"{flag.quote}"</p>
+                          <p className="mt-1 text-[12px] text-muted">{flag.comment}</p>
+                        </div>
+                      ))}
+                    </div>
                   ) : (
-                    <Button size="sm" variant="secondary" onClick={() => runBsCheck(draft.id)}>
-                      Run BS check
-                    </Button>
+                    <p className="text-[12px] text-muted">
+                      {draft.roastVerdict
+                        ? 'Nothing quoted back at you — no corporate tics found.'
+                        : 'Run the roast to see specific lines called out.'}
+                    </p>
                   )}
                 </div>
 
@@ -248,28 +328,12 @@ export function ComposerPage() {
                     Sentence rhythm and directness both read as you. The parenthetical aside is a signature move.
                   </p>
                 </div>
-
-                <div className="h-px bg-border-soft" />
-
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-[12px] font-semibold text-body">AI texture</span>
-                    <span className="text-[12px] font-bold text-success-fg">{draft.aiTexture} / 10</span>
-                  </div>
-                  <p className="text-[12px] text-muted">No hollow openers, no "let that sink in." Reads human.</p>
-                  <p className="mt-2 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
-                    Watching for
-                  </p>
-                  <p className="mt-1 text-[12px] text-muted">
-                    "It's not X, it's Y" · "Quietly" · "Here's what gets me" · Em-dash overuse
-                  </p>
-                </div>
               </div>
             </Disclosure>
 
-            <Button variant="secondary" className="justify-center" onClick={() => humanizeDraft(draft.id)}>
-              <Icon name="spark" className="h-3.5 w-3.5" />
-              Humanize this draft
+            <Button variant="secondary" className="justify-center" onClick={() => runRoastCheck(draft.id)}>
+              <Icon name="flag" className="h-3.5 w-3.5" />
+              Roast this draft
             </Button>
           </Card>
 
