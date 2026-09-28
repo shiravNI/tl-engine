@@ -26,11 +26,18 @@ import {
 } from '@/data/services/contentService'
 import { fetchVoiceCard } from '@/data/services/onboardingService'
 import { deleteResource, fetchResources, insertResource } from '@/data/services/resourceService'
+import {
+  deleteBrainMaterial as deleteBrainMaterialRow,
+  fetchBrainMaterials,
+  insertBrainMaterial,
+  uploadBrainFile,
+} from '@/data/services/brainMaterialService'
 import { useAppShell } from '@/state/AppShellContext'
 import { canTransitionContentStage, canTransitionVideoStage } from '@/lib/statusPipeline'
 import { makeId } from '@/lib/id'
 import { runRoastDetector } from '@/lib/roast'
 import type {
+  BrainMaterial,
   CarouselDeck,
   CarouselSlide,
   ContentStage,
@@ -51,6 +58,7 @@ interface ContentState {
   videoItems: VideoItem[]
   carouselDecks: CarouselDeck[]
   resources: Resource[]
+  brainMaterials: BrainMaterial[]
 }
 
 type ContentAction =
@@ -73,6 +81,8 @@ type ContentAction =
   | { type: 'REGENERATE_CAROUSEL'; deckId: string }
   | { type: 'ADD_RESOURCE'; resource: Resource }
   | { type: 'DELETE_RESOURCE'; id: string }
+  | { type: 'ADD_BRAIN_MATERIAL'; material: BrainMaterial }
+  | { type: 'DELETE_BRAIN_MATERIAL'; id: string }
 
 /** Pure so `CREATE_DRAFT` and the `createDraft` wrapper's fire-and-forget
  * insert build the exact same object. `voiceMatchSeed` is the new
@@ -279,6 +289,12 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
     case 'DELETE_RESOURCE':
       return { ...state, resources: state.resources.filter((r) => r.id !== action.id) }
 
+    case 'ADD_BRAIN_MATERIAL':
+      return { ...state, brainMaterials: [action.material, ...state.brainMaterials] }
+
+    case 'DELETE_BRAIN_MATERIAL':
+      return { ...state, brainMaterials: state.brainMaterials.filter((m) => m.id !== action.id) }
+
     default:
       return state
   }
@@ -306,6 +322,13 @@ interface ContentContextValue extends ContentState {
   createResource: (input: Omit<Resource, 'id' | 'createdAt'>) => string
   deleteResource: (id: string) => void
   getResource: (id: string) => Resource | undefined
+  createBrainMaterialFromText: (input: { kind: BrainMaterial['kind']; title: string; textContent: string }) => void
+  createBrainMaterialFromFile: (
+    file: File,
+    meta: { kind: BrainMaterial['kind']; title: string },
+  ) => Promise<void>
+  addBrainMaterialLink: (input: { kind: BrainMaterial['kind']; title: string; sourceUrl: string }) => void
+  deleteBrainMaterial: (id: string) => void
 }
 
 const ContentContext = createContext<ContentContextValue | undefined>(undefined)
@@ -332,6 +355,7 @@ export function ContentProvider({ children }: { children: ReactNode }) {
     videoItems: [],
     carouselDecks: [],
     resources: [],
+    brainMaterials: [],
   })
   const [loading, setLoading] = useState(true)
   const [voiceMatchSeed, setVoiceMatchSeed] = useState(0)
@@ -347,9 +371,13 @@ export function ContentProvider({ children }: { children: ReactNode }) {
       fetchCarouselDecks(userId),
       fetchVoiceCard(userId),
       fetchResources(userId),
-    ]).then(([ideas, drafts, posts, videoItems, carouselDecks, voiceCard, resources]) => {
+      fetchBrainMaterials(userId),
+    ]).then(([ideas, drafts, posts, videoItems, carouselDecks, voiceCard, resources, brainMaterials]) => {
       if (cancelled) return
-      dispatch({ type: 'HYDRATE', payload: { ideas, drafts, posts, videoItems, carouselDecks, resources } })
+      dispatch({
+        type: 'HYDRATE',
+        payload: { ideas, drafts, posts, videoItems, carouselDecks, resources, brainMaterials },
+      })
       setVoiceMatchSeed(voiceCard?.completenessPct ?? 0)
       setLoading(false)
     })
@@ -479,6 +507,60 @@ export function ContentProvider({ children }: { children: ReactNode }) {
         void deleteResource(id).catch((e) => reportWriteError('deleteResource', e))
       },
       getResource: (id) => state.resources.find((r) => r.id === id),
+      createBrainMaterialFromText: ({ kind, title, textContent }) => {
+        const material: BrainMaterial = {
+          id: crypto.randomUUID(),
+          kind,
+          title,
+          textContent,
+          filePath: null,
+          fileName: null,
+          sourceUrl: null,
+          createdAt: new Date().toISOString(),
+        }
+        dispatch({ type: 'ADD_BRAIN_MATERIAL', material })
+        void insertBrainMaterial(userId, material).catch((e) =>
+          reportWriteError('createBrainMaterialFromText', e),
+        )
+      },
+      createBrainMaterialFromFile: async (file, { kind, title }) => {
+        const filePath = await uploadBrainFile(userId, file)
+        const material: BrainMaterial = {
+          id: crypto.randomUUID(),
+          kind,
+          title,
+          textContent: null,
+          filePath,
+          fileName: file.name,
+          sourceUrl: null,
+          createdAt: new Date().toISOString(),
+        }
+        dispatch({ type: 'ADD_BRAIN_MATERIAL', material })
+        void insertBrainMaterial(userId, material).catch((e) =>
+          reportWriteError('createBrainMaterialFromFile', e),
+        )
+      },
+      addBrainMaterialLink: ({ kind, title, sourceUrl }) => {
+        const material: BrainMaterial = {
+          id: crypto.randomUUID(),
+          kind,
+          title,
+          textContent: null,
+          filePath: null,
+          fileName: null,
+          sourceUrl,
+          createdAt: new Date().toISOString(),
+        }
+        dispatch({ type: 'ADD_BRAIN_MATERIAL', material })
+        void insertBrainMaterial(userId, material).catch((e) => reportWriteError('addBrainMaterialLink', e))
+      },
+      deleteBrainMaterial: (id) => {
+        const material = state.brainMaterials.find((m) => m.id === id)
+        dispatch({ type: 'DELETE_BRAIN_MATERIAL', id })
+        void deleteBrainMaterialRow(id, material?.filePath ?? null).catch((e) =>
+          reportWriteError('deleteBrainMaterial', e),
+        )
+      },
     }),
     [state, loading, createDraft, userId],
   )

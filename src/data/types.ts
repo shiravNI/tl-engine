@@ -308,6 +308,25 @@ export interface Resource {
   createdAt: string
 }
 
+/** Reference material the cast member feeds in — their own past posts (for
+ * voice mining), posts they admire (for style reference), or general
+ * project/reference docs. Distinct from `Resource` (link-dump seeds for a
+ * single draft): this is context for the Voice Card and, later, the AI
+ * drafting agent's research pass. Either `textContent` (pasted) or
+ * `filePath` (uploaded) is set, never both. */
+export type BrainMaterialKind = 'own_post' | 'admired_post' | 'reference_doc'
+
+export interface BrainMaterial {
+  id: string
+  kind: BrainMaterialKind
+  title: string
+  textContent: string | null
+  filePath: string | null
+  fileName: string | null
+  sourceUrl: string | null
+  createdAt: string
+}
+
 export type ArchiveItemType = 'idea' | 'draft' | 'post'
 
 export interface ArchiveEntry {
