@@ -4,7 +4,7 @@ import type { Draft } from '@/data/types'
 import type { ComposerSeed } from '@/lib/composerSeed'
 
 function emptyState(): ContentState {
-  return { ideas: [], drafts: [], posts: [], videoItems: [], carouselDecks: [] }
+  return { ideas: [], drafts: [], posts: [], videoItems: [], carouselDecks: [], resources: [] }
 }
 
 function makeDraft(overrides: Partial<Draft> = {}): Draft {
@@ -178,6 +178,38 @@ describe('contentReducer — ideas', () => {
     }
     const next = contentReducer(state, { type: 'DELETE_ARCHIVED_IDEA', id: 'idea_1' })
     expect(next.ideas).toHaveLength(0)
+  })
+})
+
+describe('contentReducer — resources', () => {
+  it('ADD_RESOURCE prepends the new resource', () => {
+    const state = emptyState()
+    const resource = {
+      id: 'resource_1',
+      url: 'https://example.com',
+      title: 'A link',
+      note: '',
+      pillar: null,
+      tags: [],
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+    const next = contentReducer(state, { type: 'ADD_RESOURCE', resource })
+    expect(next.resources).toEqual([resource])
+  })
+
+  it('DELETE_RESOURCE removes it permanently', () => {
+    const resource = {
+      id: 'resource_1',
+      url: 'https://example.com',
+      title: 'A link',
+      note: '',
+      pillar: null,
+      tags: [],
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+    const state = { ...emptyState(), resources: [resource] }
+    const next = contentReducer(state, { type: 'DELETE_RESOURCE', id: 'resource_1' })
+    expect(next.resources).toHaveLength(0)
   })
 })
 

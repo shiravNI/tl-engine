@@ -3,15 +3,29 @@ import { useNavigate } from 'react-router-dom'
 import { Icon } from '@/components/icons/Icon'
 import { Card } from '@/components/primitives/Card'
 import { Button } from '@/components/primitives/Button'
+import { DashedPlaceholder } from '@/components/primitives/DashedPlaceholder'
 import { useContent } from '@/state/ContentContext'
 import { fetchNewsletterIssue } from '@/data/services/newsletterService'
 import type { NewsletterIssue } from '@/data/types'
 
+const RECENT_RESOURCES = 5
+
 /** `5a` — Newsletter: daily auto briefing with pre-written post ideas. */
 export function NewsletterPage() {
   const navigate = useNavigate()
-  const { createDraft } = useContent()
+  const { createDraft, resources, createResource } = useContent()
   const [issue, setIssue] = useState<NewsletterIssue | null>(null)
+  const [addingResource, setAddingResource] = useState(false)
+  const [resourceUrlDraft, setResourceUrlDraft] = useState('')
+
+  const recentResources = resources.slice(0, RECENT_RESOURCES)
+
+  function submitResource() {
+    const url = resourceUrlDraft.trim()
+    if (url) createResource({ url, title: url, note: '', pillar: null, tags: [] })
+    setResourceUrlDraft('')
+    setAddingResource(false)
+  }
 
   useEffect(() => {
     fetchNewsletterIssue().then(setIssue)
@@ -107,16 +121,54 @@ export function NewsletterPage() {
 
       <div className="flex w-[280px] flex-none flex-col gap-3.5">
         <Card className="flex flex-col gap-2.5 p-4">
-          <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">This issue's sources</p>
-          <div className="flex items-center gap-2 text-body">
-            <Icon name="folder" className="h-3.5 w-3.5 text-muted" />
-            <span className="text-[13px]">Your Drive · Q2 report</span>
+          <div className="flex items-center justify-between">
+            <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Resources</p>
+            <button
+              className="text-[12px] font-semibold text-accent-dark"
+              onClick={() => navigate('/newsletter/resources')}
+            >
+              Manage sources
+            </button>
           </div>
-          <div className="flex items-center gap-2 text-body">
-            <Icon name="core" className="h-3.5 w-3.5 text-muted" />
-            <span className="text-[13px]">Your Core pillars</span>
-          </div>
-          <span className="text-[12px] font-semibold text-accent-dark">Manage sources</span>
+          {recentResources.map((resource) => (
+            <div key={resource.id} className="flex items-start gap-2">
+              <Icon name="link" className="mt-0.5 h-3.5 w-3.5 flex-none text-muted" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-semibold text-body" title={resource.title}>
+                  {resource.title || resource.url}
+                </p>
+                <button
+                  className="text-[11.5px] font-semibold text-accent-dark"
+                  onClick={() => navigate(`/create/drafts/new?fromResource=${resource.id}`)}
+                >
+                  Draft from this
+                </button>
+              </div>
+            </div>
+          ))}
+          {recentResources.length === 0 && (
+            <DashedPlaceholder className="p-3 text-center">No resources saved yet</DashedPlaceholder>
+          )}
+          {addingResource ? (
+            <div className="flex gap-2">
+              <input
+                autoFocus
+                value={resourceUrlDraft}
+                onChange={(e) => setResourceUrlDraft(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && submitResource()}
+                placeholder="Paste a link…"
+                className="flex-1 rounded-lg border border-border px-2.5 py-1.5 text-[12.5px] outline-none focus:border-accent"
+              />
+              <Button size="sm" variant="soft" onClick={submitResource}>
+                Save
+              </Button>
+            </div>
+          ) : (
+            <DashedPlaceholder className="cursor-pointer gap-2 p-2.5" onClick={() => setAddingResource(true)}>
+              <Icon name="plus" className="h-3.5 w-3.5" />
+              Add a resource
+            </DashedPlaceholder>
+          )}
         </Card>
         <Card className="flex flex-col gap-2.5 p-4">
           <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Past issues</p>

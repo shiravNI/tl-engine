@@ -30,6 +30,9 @@ const CarouselEditorPage = lazy(() =>
 const NewsletterPage = lazy(() =>
   import('@/features/newsletter/NewsletterPage').then((m) => ({ default: m.NewsletterPage })),
 )
+const ResourcesPage = lazy(() =>
+  import('@/features/newsletter/ResourcesPage').then((m) => ({ default: m.ResourcesPage })),
+)
 const InsightsPostsPage = lazy(() =>
   import('@/features/insights/InsightsPostsPage').then((m) => ({ default: m.InsightsPostsPage })),
 )
@@ -94,7 +97,13 @@ export const router = createBrowserRouter([
           { path: 'carousel/:deckId', element: <CarouselEditorPage /> },
         ],
       },
-      { path: 'newsletter', element: <NewsletterPage /> },
+      {
+        path: 'newsletter',
+        children: [
+          { index: true, element: <NewsletterPage /> },
+          { path: 'resources', element: <ResourcesPage /> },
+        ],
+      },
       { path: 'insights', element: <Navigate to="/insights/posts" replace /> },
       { path: 'insights/posts', element: <InsightsPostsPage /> },
       { path: 'milestones', element: <MilestonesPage /> },

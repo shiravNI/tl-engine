@@ -72,6 +72,7 @@ export function SideNav({ variant }: SideNavProps) {
   const path = location.pathname
 
   const onCreate = path.startsWith('/create')
+  const onNewsletter = path.startsWith('/newsletter')
   const onInsights = path.startsWith('/insights')
   const onBrain = path.startsWith('/brain')
 
@@ -112,7 +113,13 @@ export function SideNav({ variant }: SideNavProps) {
           <SubRow label="Carousel" to="/create/carousel" active={path.startsWith('/create/carousel')} />
         </div>
       )}
-      <NavRow icon="inbox" label="Newsletter" to="/newsletter" active={path === '/newsletter'} disabled={locked} />
+      <NavRow icon="inbox" label="Newsletter" to="/newsletter" active={onNewsletter} disabled={locked} />
+      {onNewsletter && !locked && (
+        <div className="mb-1 flex flex-col">
+          <SubRow label="Today's briefing" to="/newsletter" active={path === '/newsletter'} />
+          <SubRow label="Resources" to="/newsletter/resources" active={path.startsWith('/newsletter/resources')} />
+        </div>
+      )}
       <NavRow
         icon="chart"
         label="Insights & Data"

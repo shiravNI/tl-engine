@@ -288,6 +288,18 @@ export interface OnboardingPhase {
   status: 'done' | 'active' | 'upcoming'
 }
 
+/** A dump of interesting links people find, usable later in a draft — lives
+ * under Newsletter. Hard-delete only for v1 (no soft-archive lifecycle). */
+export interface Resource {
+  id: string
+  url: string
+  title: string
+  note: string
+  pillar: Pillar | null
+  tags: string[]
+  createdAt: string
+}
+
 export type ArchiveItemType = 'idea' | 'draft' | 'post'
 
 export interface ArchiveEntry {

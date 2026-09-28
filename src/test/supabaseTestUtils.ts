@@ -327,5 +327,6 @@ export function defaultSeed(): Tables {
     voice_card_opinions: [],
     interview_answers: [],
     contacts: [],
+    resources: [],
   }
 }

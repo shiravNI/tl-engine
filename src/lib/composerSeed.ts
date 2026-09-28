@@ -1,4 +1,4 @@
-import type { DraftFormat, Idea, NewsletterIssue, Pillar } from '@/data/types'
+import type { DraftFormat, Idea, NewsletterIssue, Pillar, Resource } from '@/data/types'
 
 /**
  * "Draft it from this insight" / "started from Brain idea" / newsletter
@@ -9,7 +9,7 @@ import type { DraftFormat, Idea, NewsletterIssue, Pillar } from '@/data/types'
  * not three bespoke ones.
  */
 
-export type ComposerSourceType = 'idea' | 'insight' | 'newsletter'
+export type ComposerSourceType = 'idea' | 'insight' | 'newsletter' | 'resource'
 
 export interface ComposerSeed {
   title: string
@@ -52,5 +52,15 @@ export function seedFromNewsletter(issue: NewsletterIssue): ComposerSeed {
     sourceLabel: issue.headline,
     sourceIdeaId: issue.prewrittenDraft.seedIdeaId,
     pillar: null,
+  }
+}
+
+export function seedFromResource(resource: Resource): ComposerSeed {
+  return {
+    title: resource.title,
+    paragraphs: [resource.title, ...(resource.note ? [resource.note] : []), ''],
+    sourceType: 'resource',
+    sourceLabel: resource.title || resource.url,
+    pillar: resource.pillar,
   }
 }

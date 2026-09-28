@@ -25,6 +25,7 @@ import {
   updateVideoItemStage,
 } from '@/data/services/contentService'
 import { fetchVoiceCard } from '@/data/services/onboardingService'
+import { deleteResource, fetchResources, insertResource } from '@/data/services/resourceService'
 import { useAppShell } from '@/state/AppShellContext'
 import { canTransitionContentStage, canTransitionVideoStage } from '@/lib/statusPipeline'
 import { makeId } from '@/lib/id'
@@ -36,6 +37,7 @@ import type {
   Idea,
   Pillar,
   PostAnalytics,
+  Resource,
   VideoItem,
   VideoStage,
 } from '@/data/types'
@@ -47,6 +49,7 @@ interface ContentState {
   posts: PostAnalytics[]
   videoItems: VideoItem[]
   carouselDecks: CarouselDeck[]
+  resources: Resource[]
 }
 
 type ContentAction =
@@ -68,6 +71,8 @@ type ContentAction =
   | { type: 'ADD_VIDEO_ITEM'; item: VideoItem }
   | { type: 'UPDATE_CAROUSEL_SLIDE'; deckId: string; slideId: string; patch: Partial<CarouselSlide> }
   | { type: 'REGENERATE_CAROUSEL'; deckId: string }
+  | { type: 'ADD_RESOURCE'; resource: Resource }
+  | { type: 'DELETE_RESOURCE'; id: string }
 
 /** The exact note `RUN_BS_CHECK` sets — a module-level constant so the
  * reducer's local dispatch and the fire-and-forget Supabase write always
@@ -293,6 +298,12 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
     case 'REGENERATE_CAROUSEL':
       return state
 
+    case 'ADD_RESOURCE':
+      return { ...state, resources: [action.resource, ...state.resources] }
+
+    case 'DELETE_RESOURCE':
+      return { ...state, resources: state.resources.filter((r) => r.id !== action.id) }
+
     default:
       return state
   }
@@ -318,6 +329,9 @@ interface ContentContextValue extends ContentState {
   updateCarouselSlide: (deckId: string, slideId: string, patch: Partial<CarouselSlide>) => void
   getDraft: (id: string) => Draft | undefined
   getIdea: (id: string) => Idea | undefined
+  createResource: (input: Omit<Resource, 'id' | 'createdAt'>) => string
+  deleteResource: (id: string) => void
+  getResource: (id: string) => Resource | undefined
 }
 
 const ContentContext = createContext<ContentContextValue | undefined>(undefined)
@@ -343,6 +357,7 @@ export function ContentProvider({ children }: { children: ReactNode }) {
     posts: [],
     videoItems: [],
     carouselDecks: [],
+    resources: [],
   })
   const [loading, setLoading] = useState(true)
   const [voiceMatchSeed, setVoiceMatchSeed] = useState(0)
@@ -357,9 +372,10 @@ export function ContentProvider({ children }: { children: ReactNode }) {
       fetchVideoItems(userId),
       fetchCarouselDecks(userId),
       fetchVoiceCard(userId),
-    ]).then(([ideas, drafts, posts, videoItems, carouselDecks, voiceCard]) => {
+      fetchResources(userId),
+    ]).then(([ideas, drafts, posts, videoItems, carouselDecks, voiceCard, resources]) => {
       if (cancelled) return
-      dispatch({ type: 'HYDRATE', payload: { ideas, drafts, posts, videoItems, carouselDecks } })
+      dispatch({ type: 'HYDRATE', payload: { ideas, drafts, posts, videoItems, carouselDecks, resources } })
       setVoiceMatchSeed(voiceCard?.completenessPct ?? 0)
       setLoading(false)
     })
@@ -480,6 +496,18 @@ export function ContentProvider({ children }: { children: ReactNode }) {
       },
       getDraft: (id) => state.drafts.find((d) => d.id === id),
       getIdea: (id) => state.ideas.find((i) => i.id === id),
+      createResource: (input) => {
+        const id = crypto.randomUUID()
+        const resource: Resource = { ...input, id, createdAt: new Date().toISOString() }
+        dispatch({ type: 'ADD_RESOURCE', resource })
+        void insertResource(userId, resource).catch((e) => reportWriteError('createResource', e))
+        return id
+      },
+      deleteResource: (id) => {
+        dispatch({ type: 'DELETE_RESOURCE', id })
+        void deleteResource(id).catch((e) => reportWriteError('deleteResource', e))
+      },
+      getResource: (id) => state.resources.find((r) => r.id === id),
     }),
     [state, loading, createDraft, userId],
   )

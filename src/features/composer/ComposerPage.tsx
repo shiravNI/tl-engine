@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/primitives/Checkbox'
 import { Disclosure } from '@/components/primitives/Disclosure'
 import { useContent } from '@/state/ContentContext'
 import { useChat } from '@/state/ChatContext'
-import { seedFromIdea, seedFromInsight, seedFromNewsletter } from '@/lib/composerSeed'
+import { seedFromIdea, seedFromInsight, seedFromNewsletter, seedFromResource } from '@/lib/composerSeed'
 import { insightSnapshot } from '@/data/fixtures/insights'
 import { newsletterIssue } from '@/data/fixtures/newsletter'
 import { cx } from '@/lib/cx'
@@ -23,8 +23,17 @@ export function ComposerPage() {
   const { draftId } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { getDraft, createDraft, updateDraft, runBsCheck, humanizeDraft, toggleChecklistItem, setDraftStage, getIdea } =
-    useContent()
+  const {
+    getDraft,
+    createDraft,
+    updateDraft,
+    runBsCheck,
+    humanizeDraft,
+    toggleChecklistItem,
+    setDraftStage,
+    getIdea,
+    getResource,
+  } = useContent()
   const { openBubble } = useChat()
   const seededRef = useRef(false)
   const [resolvedId, setResolvedId] = useState<string | undefined>(draftId)
@@ -40,6 +49,7 @@ export function ComposerPage() {
     const fromIdea = searchParams.get('fromIdea')
     const fromInsight = searchParams.get('fromInsight')
     const fromNewsletter = searchParams.get('fromNewsletter')
+    const fromResource = searchParams.get('fromResource')
     const format = searchParams.get('format') === 'article' ? 'article' : undefined
 
     let seed
@@ -50,6 +60,9 @@ export function ComposerPage() {
       seed = seedFromInsight(insightSnapshot.suggestedMove)
     } else if (fromNewsletter) {
       seed = seedFromNewsletter(newsletterIssue)
+    } else if (fromResource) {
+      const resource = getResource(fromResource)
+      if (resource) seed = seedFromResource(resource)
     }
     if (!seed) {
       seed = { title: 'Untitled draft', paragraphs: [''], sourceType: undefined, sourceLabel: undefined, sourceIdeaId: undefined, pillar: null }
@@ -58,7 +71,7 @@ export function ComposerPage() {
     const id = createDraft(seed)
     setResolvedId(id)
     navigate(`/create/drafts/${id}`, { replace: true })
-  }, [draftId, searchParams, createDraft, getIdea, navigate])
+  }, [draftId, searchParams, createDraft, getIdea, getResource, navigate])
 
   const draft = resolvedId ? getDraft(resolvedId) : undefined
   const sourceIdea = draft?.sourceIdeaId ? getIdea(draft.sourceIdeaId) : undefined
