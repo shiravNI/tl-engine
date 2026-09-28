@@ -14,10 +14,10 @@ export const drafts: Draft[] = [
     pillar: 'AI search',
     stage: 'draft',
     format: 'post',
-    bsCheck: 'passed',
-    bsCheckNote: 'Anchored to your own Q1 data — proprietary and specific. Nobody else can write this version.',
+    slopScore: 0,
+    roastVerdict: "Anchored and specific — this reads like only you could've written it.",
+    roastFlags: [],
     voiceMatch: 91,
-    aiTexture: 2,
     sourceIdeaId: 'idea_1',
     sourceType: 'idea',
     sourceLabel: "Comparison sites aren't dying, they're being unbundled",
@@ -37,16 +37,36 @@ export const drafts: Draft[] = [
     title: 'Three things I got wrong about brand budgets',
     paragraphs: [
       'I argued against this for two years. Then I saw the retention curve.',
-      'Cursor blinking here — write the next paragraph…',
+      "Here's the thing: this could be a total game-changer once we circle back with real budget data.",
     ],
     excerpt: 'I argued against this for two years. Then I saw the retention curve…',
     pillar: null,
     stage: 'draft',
     format: 'post',
-    bsCheck: 'needs_review',
-    bsCheckNote: 'Needs a real example for the middle section — it’s all theory right now.',
+    // Real, populated roastFlags — matches this draft's own second
+    // paragraph, so the UI has something to show without needing a live
+    // run first (per the plan's fixture requirement).
+    slopScore: 6,
+    roastVerdict: 'Solid bones, but a few corporate tics snuck in.',
+    roastFlags: [
+      {
+        quote:
+          "Here's the thing: this could be a total game-changer once we circle back with real budget data.",
+        comment:
+          "That opener has been recycled since roughly 2019 — here's the thing, everybody knows it now.",
+      },
+      {
+        quote:
+          "Here's the thing: this could be a total game-changer once we circle back with real budget data.",
+        comment: '"Circle back" — said no human in an actual conversation, ever.',
+      },
+      {
+        quote:
+          "Here's the thing: this could be a total game-changer once we circle back with real budget data.",
+        comment: '"Game-changing" — cool, which game, and did it actually change?',
+      },
+    ],
     voiceMatch: 68,
-    aiTexture: 4,
     checklist: {
       hookEarnsSeeMore: true,
       noLinksInBody: true,
@@ -66,10 +86,10 @@ export const drafts: Draft[] = [
     pillar: 'Performance',
     stage: 'scheduled',
     format: 'post',
-    bsCheck: 'passed',
-    bsCheckNote: 'Backed by the Q2 conversion report.',
+    slopScore: 0,
+    roastVerdict: "Anchored and specific — this reads like only you could've written it.",
+    roastFlags: [],
     voiceMatch: 88,
-    aiTexture: 1,
     checklist: {
       hookEarnsSeeMore: true,
       noLinksInBody: true,
@@ -88,10 +108,11 @@ export const drafts: Draft[] = [
     pillar: 'Performance',
     stage: 'archived',
     format: 'post',
-    bsCheck: 'not_run',
-    bsCheckNote: '',
+    // Never roasted.
+    slopScore: 0,
+    roastVerdict: '',
+    roastFlags: [],
     voiceMatch: 54,
-    aiTexture: 5,
     checklist: {
       hookEarnsSeeMore: false,
       noLinksInBody: true,
@@ -110,10 +131,10 @@ export const drafts: Draft[] = [
     pillar: 'Performance',
     stage: 'archived',
     format: 'post',
-    bsCheck: 'not_run',
-    bsCheckNote: '',
+    slopScore: 0,
+    roastVerdict: '',
+    roastFlags: [],
     voiceMatch: 45,
-    aiTexture: 6,
     checklist: {
       hookEarnsSeeMore: false,
       noLinksInBody: true,
@@ -135,10 +156,10 @@ export const drafts: Draft[] = [
     pillar: 'Performance',
     stage: 'in_review',
     format: 'post',
-    bsCheck: 'not_run',
-    bsCheckNote: '',
+    slopScore: 0,
+    roastVerdict: '',
+    roastFlags: [],
     voiceMatch: 84,
-    aiTexture: 3,
     checklist: {
       hookEarnsSeeMore: true,
       noLinksInBody: true,

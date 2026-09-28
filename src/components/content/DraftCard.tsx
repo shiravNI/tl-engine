@@ -3,6 +3,7 @@ import { Card } from '@/components/primitives/Card'
 import { Pill } from '@/components/primitives/Pill'
 import { Icon } from '@/components/icons/Icon'
 import { CONTENT_STAGE_LABEL } from '@/lib/statusPipeline'
+import { getRoastTier } from '@/lib/roast'
 import type { Draft } from '@/data/types'
 
 /** Extracted from `CreateDashboardPage`'s inline draft-card JSX — reused as-is
@@ -14,6 +15,9 @@ import type { Draft } from '@/data/types'
  * opt-in slot so the dashboard keeps its "Edit" / "Run BS check" / "Mark
  * scheduled to post" buttons while `BrainPage` doesn't need any. */
 export function DraftCard({ draft, actions }: { draft: Draft; actions?: ReactNode }) {
+  const roastTier = getRoastTier(draft.slopScore)
+  const roastTone = roastTier === 'clear' ? 'success' : roastTier === 'flagged' ? 'warn' : 'danger'
+  const roastLabel = roastTier === 'clear' ? 'Clear' : roastTier === 'flagged' ? 'Flagged' : 'Roasted'
   return (
     <Card className="flex flex-col gap-2.5 p-3.5">
       <div className="flex items-start justify-between gap-2">
@@ -23,17 +27,10 @@ export function DraftCard({ draft, actions }: { draft: Draft; actions?: ReactNod
       <p className="text-[12px] text-muted">{draft.excerpt}</p>
       <div className="flex flex-wrap items-center gap-1.5">
         {draft.format === 'article' && <Pill tone="accent">Article</Pill>}
-        {draft.bsCheck === 'passed' && (
-          <Pill tone="success">
-            <Icon name="shield" className="h-3 w-3" /> BS check: passed
-          </Pill>
-        )}
-        {draft.bsCheck === 'needs_review' && (
-          <Pill tone="warn" className="max-w-full" title={draft.bsCheckNote || undefined}>
-            <Icon name="alert" className="h-3 w-3 shrink-0" />
-            <span className="min-w-0 truncate">{draft.bsCheckNote || 'Needs review'}</span>
-          </Pill>
-        )}
+        <Pill tone={roastTone} className="max-w-full" title={draft.roastVerdict || undefined}>
+          <Icon name={roastTier === 'clear' ? 'check' : roastTier === 'flagged' ? 'alert' : 'flag'} className="h-3 w-3 shrink-0" />
+          <span className="min-w-0 truncate">Roast: {roastLabel}</span>
+        </Pill>
         <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
           Voice {draft.voiceMatch}%
         </span>

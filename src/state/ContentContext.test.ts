@@ -16,10 +16,10 @@ function makeDraft(overrides: Partial<Draft> = {}): Draft {
     pillar: null,
     stage: 'draft',
     format: 'post',
-    bsCheck: 'not_run',
-    bsCheckNote: '',
+    slopScore: 0,
+    roastVerdict: '',
+    roastFlags: [],
     voiceMatch: 50,
-    aiTexture: 5,
     checklist: {
       hookEarnsSeeMore: false,
       noLinksInBody: false,
@@ -53,9 +53,10 @@ describe('contentReducer — CREATE_DRAFT', () => {
       excerpt: 'A seeded title',
       pillar: 'AI search',
       stage: 'draft',
-      bsCheck: 'not_run',
+      slopScore: 0,
+      roastVerdict: '',
+      roastFlags: [],
       voiceMatch: 0,
-      aiTexture: 0,
       sourceIdeaId: 'idea_1',
       sourceType: 'idea',
     })
@@ -88,8 +89,8 @@ describe('contentReducer — CREATE_DRAFT', () => {
 })
 
 describe('contentReducer — draft status transitions (SET_DRAFT_STAGE)', () => {
-  it('moves a passed-BS-check draft to scheduled and stamps scheduledFor', () => {
-    const state = { ...emptyState(), drafts: [makeDraft({ stage: 'draft', bsCheck: 'passed' })] }
+  it('moves a clear-roast draft to scheduled and stamps scheduledFor', () => {
+    const state = { ...emptyState(), drafts: [makeDraft({ stage: 'draft', slopScore: 0 })] }
     const next = contentReducer(state, { type: 'SET_DRAFT_STAGE', id: 'draft_1', stage: 'scheduled' })
     expect(next.drafts[0].stage).toBe('scheduled')
     expect(next.drafts[0].scheduledFor).toBeTruthy()
@@ -126,18 +127,33 @@ describe('contentReducer — draft status transitions (SET_DRAFT_STAGE)', () => 
 })
 
 describe('contentReducer — other draft actions', () => {
-  it('RUN_BS_CHECK marks a draft passed with a note', () => {
-    const state = { ...emptyState(), drafts: [makeDraft({ bsCheck: 'needs_review' })] }
-    const next = contentReducer(state, { type: 'RUN_BS_CHECK', id: 'draft_1' })
-    expect(next.drafts[0].bsCheck).toBe('passed')
-    expect(next.drafts[0].bsCheckNote).toContain('Anchored')
+  it('RUN_ROAST scores the draft from its own paragraphs and populates verdict + flags', () => {
+    const state = {
+      ...emptyState(),
+      drafts: [
+        makeDraft({
+          paragraphs: ['Let that sink in — we are quietly leveraging synergies to move the needle.'],
+        }),
+      ],
+    }
+    const next = contentReducer(state, { type: 'RUN_ROAST', id: 'draft_1' })
+    expect(next.drafts[0].slopScore).toBeGreaterThan(0)
+    expect(next.drafts[0].roastVerdict).toBeTruthy()
+    expect(next.drafts[0].roastFlags.length).toBeGreaterThan(0)
   })
 
-  it('HUMANIZE_DRAFT nudges AI texture down and voice match up, clamped', () => {
-    const state = { ...emptyState(), drafts: [makeDraft({ aiTexture: 1, voiceMatch: 98 })] }
-    const next = contentReducer(state, { type: 'HUMANIZE_DRAFT', id: 'draft_1' })
-    expect(next.drafts[0].aiTexture).toBe(0) // clamped at 0, not negative
-    expect(next.drafts[0].voiceMatch).toBe(99) // clamped at 99
+  it('RUN_ROAST scores a clean, anchored draft as clear with no flags', () => {
+    const state = {
+      ...emptyState(),
+      drafts: [
+        makeDraft({
+          paragraphs: ['Referral traffic from AI assistants is up 340% since January.'],
+        }),
+      ],
+    }
+    const next = contentReducer(state, { type: 'RUN_ROAST', id: 'draft_1' })
+    expect(next.drafts[0].slopScore).toBe(0)
+    expect(next.drafts[0].roastFlags).toEqual([])
   })
 
   it('TOGGLE_CHECKLIST flips exactly one key without touching the others', () => {

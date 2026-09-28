@@ -19,12 +19,14 @@ import { useContent } from '@/state/ContentContext'
 import { useGamification, countDoneTasks } from '@/state/GamificationContext'
 import { cx } from '@/lib/cx'
 import { pickPromptStarters } from '@/data/promptStarters'
+import { getRoastTier } from '@/lib/roast'
+import type { Idea } from '@/data/types'
 
 const VISIBLE_IDEAS = 4
 
 export function CreateDashboardPage() {
   const navigate = useNavigate()
-  const { ideas, drafts, posts, addIdea, setDraftStage, runBsCheck, loading } = useContent()
+  const { ideas, drafts, posts, addIdea, setDraftStage, runRoastCheck, loading } = useContent()
   const { tasks, toggleTask, addTask, badges } = useGamification()
   const [showAllIdeas, setShowAllIdeas] = useState(false)
   const [addingIdea, setAddingIdea] = useState(false)
@@ -262,28 +264,31 @@ export function CreateDashboardPage() {
             <h3 className="text-[14px] font-semibold">Drafts</h3>
             <Pill>{draftStage.length}</Pill>
           </div>
-          {draftStage.map((draft) => (
-            <DraftCard
-              key={draft.id}
-              draft={draft}
-              actions={
-                <>
-                  <Button size="sm" variant="secondary" onClick={() => navigate(`/create/drafts/${draft.id}`)}>
-                    Edit
-                  </Button>
-                  {draft.bsCheck === 'passed' ? (
-                    <Button size="sm" variant="primary" onClick={() => setDraftStage(draft.id, 'scheduled')}>
-                      Mark scheduled to post
+          {draftStage.map((draft) => {
+            const roastTier = getRoastTier(draft.slopScore)
+            return (
+              <DraftCard
+                key={draft.id}
+                draft={draft}
+                actions={
+                  <>
+                    <Button size="sm" variant="secondary" onClick={() => navigate(`/create/drafts/${draft.id}`)}>
+                      Edit
                     </Button>
-                  ) : (
-                    <Button size="sm" variant="secondary" onClick={() => runBsCheck(draft.id)}>
-                      Run BS check
-                    </Button>
-                  )}
-                </>
-              }
-            />
-          ))}
+                    {roastTier === 'clear' ? (
+                      <Button size="sm" variant="primary" onClick={() => setDraftStage(draft.id, 'scheduled')}>
+                        Mark scheduled to post
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="secondary" onClick={() => runRoastCheck(draft.id)}>
+                        Roast this draft
+                      </Button>
+                    )}
+                  </>
+                }
+              />
+            )
+          })}
           {draftStage.length === 0 && (
             <DashedPlaceholder className="p-4 text-center">No drafts waiting</DashedPlaceholder>
           )}

@@ -22,10 +22,10 @@ function makeDraft(overrides: Partial<Draft> = {}): Draft {
     pillar: null,
     stage: 'draft',
     format: 'post',
-    bsCheck: 'not_run',
-    bsCheckNote: '',
+    slopScore: 0,
+    roastVerdict: '',
+    roastFlags: [],
     voiceMatch: 0,
-    aiTexture: 0,
     checklist: {
       hookEarnsSeeMore: false,
       noLinksInBody: false,

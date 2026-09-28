@@ -67,13 +67,13 @@ describe('ContentContext (through the real provider)', () => {
     await waitFor(() => expect(result.current.drafts.length).toBe(initialDraftCount + 1))
     expect(result.current.getDraft(newId)).toMatchObject({ title: 'Drafted from a test', stage: 'draft' })
 
-    // A brand-new draft can't jump straight to scheduled without passing
-    // the BS check first — run it, then verify the draft ends up on the
-    // schedule with a real post created once it's actually published.
+    // Roast the draft — its own seeded paragraph is clean (no clichés, no
+    // metric either), so it should score 0 / clear with no flags.
     act(() => {
-      result.current.runBsCheck(newId)
+      result.current.runRoastCheck(newId)
     })
-    await waitFor(() => expect(result.current.getDraft(newId)?.bsCheck).toBe('passed'))
+    await waitFor(() => expect(result.current.getDraft(newId)?.roastVerdict).toBeTruthy())
+    expect(result.current.getDraft(newId)?.slopScore).toBe(0)
 
     act(() => {
       result.current.setDraftStage(newId, 'scheduled')
