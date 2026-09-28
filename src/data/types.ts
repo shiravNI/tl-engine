@@ -256,6 +256,11 @@ export interface NewsletterStory {
   headline: string
   sourceLabel: string
   matchesLabel: string
+  /** Which real record this story is — lets "Turn into draft" seed from
+   * the actual idea/resource via `composerSeed.ts`, never an inline
+   * ad hoc object. */
+  refType: 'idea' | 'resource'
+  refId: string
 }
 
 export interface NewsletterIssue {
@@ -264,7 +269,7 @@ export interface NewsletterIssue {
   headline: string
   stories: NewsletterStory[]
   statOfDay: { value: string; caption: string }
-  prewrittenDraft: { hook: string; note: string; seedIdeaId?: string }
+  prewrittenDraft: { hook: string; note: string; seedIdeaId?: string; seedResourceId?: string }
   pastIssues: { label: string; summary: string }[]
 }
 

@@ -12,12 +12,16 @@ export const newsletterIssue: NewsletterIssue = {
       headline: "OpenAI's shopping layer just quietly ate a slice of comparison-site traffic",
       sourceLabel: 'The Information',
       matchesLabel: 'matches your "unbundling" pillar',
+      refType: 'idea',
+      refId: NEWSLETTER_SEED_IDEA_ID,
     },
     {
       id: 'story_2',
       headline: 'New data: brand lift compounds performance efficiency by 18% at scale',
       sourceLabel: 'WARC',
       matchesLabel: 'matches your "brand budgets" draft',
+      refType: 'idea',
+      refId: NEWSLETTER_SEED_IDEA_ID,
     },
   ],
   statOfDay: {
