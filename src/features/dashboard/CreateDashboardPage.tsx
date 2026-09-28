@@ -7,34 +7,20 @@ import { Button } from '@/components/primitives/Button'
 import { Checkbox } from '@/components/primitives/Checkbox'
 import { ProgressBar } from '@/components/primitives/ProgressBar'
 import { DashedPlaceholder } from '@/components/primitives/DashedPlaceholder'
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRoot,
+  DropdownMenuTrigger,
+} from '@/components/primitives/DropdownMenu'
+import { IdeaCard } from '@/components/content/IdeaCard'
+import { DraftCard } from '@/components/content/DraftCard'
 import { useContent } from '@/state/ContentContext'
 import { useGamification, countDoneTasks } from '@/state/GamificationContext'
 import { cx } from '@/lib/cx'
-import type { Idea } from '@/data/types'
 import { pickPromptStarters } from '@/data/promptStarters'
 
 const VISIBLE_IDEAS = 4
-
-function IdeaCard({ idea }: { idea: Idea }) {
-  return (
-    <Card className="flex flex-col gap-1.5 p-3.5">
-      <p className="text-[13px] font-semibold leading-tight text-ink">{idea.text}</p>
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        {idea.pillar ? (
-          <Pill tone="accent">Pillar: {idea.pillar}</Pill>
-        ) : (
-          <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Untagged</span>
-        )}
-        {idea.source === 'voice_note' && (
-          <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Voice note</span>
-        )}
-        {idea.source === 'slack' && (
-          <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Slack</span>
-        )}
-      </div>
-    </Card>
-  )
-}
 
 export function CreateDashboardPage() {
   const navigate = useNavigate()
@@ -153,10 +139,20 @@ export function CreateDashboardPage() {
               <Icon name="bulb" className="h-[15px] w-[15px]" />
               Brain dump
             </Button>
-            <Button variant="primary" onClick={() => navigate('/create/drafts/new')}>
-              <Icon name="plus" className="h-[15px] w-[15px]" />
-              New draft
-            </Button>
+            <DropdownMenuRoot>
+              <DropdownMenuTrigger asChild>
+                <Button variant="primary">
+                  <Icon name="plus" className="h-[15px] w-[15px]" />
+                  New draft
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onSelect={() => navigate('/create/drafts/new')}>Post</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate('/create/drafts/new?format=article')}>
+                  Article
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenuRoot>
           </div>
         </div>
         <div className="mt-5 flex gap-5">
@@ -267,40 +263,26 @@ export function CreateDashboardPage() {
             <Pill>{draftStage.length}</Pill>
           </div>
           {draftStage.map((draft) => (
-            <Card key={draft.id} className="flex flex-col gap-2.5 p-3.5">
-              <p className="text-[13.5px] font-semibold leading-tight">{draft.title}</p>
-              <p className="text-[12px] text-muted">{draft.excerpt}</p>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {draft.bsCheck === 'passed' && (
-                  <Pill tone="success">
-                    <Icon name="shield" className="h-3 w-3" /> BS check: passed
-                  </Pill>
-                )}
-                {draft.bsCheck === 'needs_review' && (
-                  <Pill tone="warn" className="max-w-full" title={draft.bsCheckNote || undefined}>
-                    <Icon name="alert" className="h-3 w-3 shrink-0" />
-                    <span className="min-w-0 truncate">{draft.bsCheckNote || 'Needs review'}</span>
-                  </Pill>
-                )}
-                <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
-                  Voice {draft.voiceMatch}%
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => navigate(`/create/drafts/${draft.id}`)}>
-                  Edit
-                </Button>
-                {draft.bsCheck === 'passed' ? (
-                  <Button size="sm" variant="primary" onClick={() => setDraftStage(draft.id, 'scheduled')}>
-                    Mark scheduled to post
+            <DraftCard
+              key={draft.id}
+              draft={draft}
+              actions={
+                <>
+                  <Button size="sm" variant="secondary" onClick={() => navigate(`/create/drafts/${draft.id}`)}>
+                    Edit
                   </Button>
-                ) : (
-                  <Button size="sm" variant="secondary" onClick={() => runBsCheck(draft.id)}>
-                    Run BS check
-                  </Button>
-                )}
-              </div>
-            </Card>
+                  {draft.bsCheck === 'passed' ? (
+                    <Button size="sm" variant="primary" onClick={() => setDraftStage(draft.id, 'scheduled')}>
+                      Mark scheduled to post
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="secondary" onClick={() => runBsCheck(draft.id)}>
+                      Run BS check
+                    </Button>
+                  )}
+                </>
+              }
+            />
           ))}
           {draftStage.length === 0 && (
             <DashedPlaceholder className="p-4 text-center">No drafts waiting</DashedPlaceholder>

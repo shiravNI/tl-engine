@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { seedFromIdea, seedFromInsight, seedFromNewsletter } from '@/lib/composerSeed'
-import type { Idea, NewsletterIssue } from '@/data/types'
+import { seedFromIdea, seedFromInsight, seedFromNewsletter, seedFromResource } from '@/lib/composerSeed'
+import type { Idea, NewsletterIssue, Resource } from '@/data/types'
 
 const idea: Idea = {
   id: 'idea_x',
@@ -48,5 +48,44 @@ describe('seedFromNewsletter', () => {
     expect(seed.sourceType).toBe('newsletter')
     expect(seed.sourceIdeaId).toBe('idea_x')
     expect(seed.sourceLabel).toBe(issue.headline)
+  })
+})
+
+const resource: Resource = {
+  id: 'resource_x',
+  url: 'https://example.com/a-report',
+  title: 'A great report worth citing',
+  note: 'The churn stat on page 4 is the whole story.',
+  pillar: 'Performance',
+  tags: ['q2'],
+  createdAt: '2026-01-01T00:00:00Z',
+}
+
+describe('seedFromResource', () => {
+  it('pre-fills title/paragraphs from the resource and carries its pillar', () => {
+    const seed = seedFromResource(resource)
+    expect(seed.title).toBe(resource.title)
+    expect(seed.paragraphs).toEqual([resource.title, resource.note, ''])
+    expect(seed.sourceType).toBe('resource')
+    expect(seed.sourceLabel).toBe(resource.title)
+    expect(seed.pillar).toBe('Performance')
+  })
+
+  it('falls back to the url for sourceLabel when the resource has no title', () => {
+    const seed = seedFromResource({ ...resource, title: '' })
+    expect(seed.sourceLabel).toBe(resource.url)
+  })
+
+  it('omits the note paragraph when the resource has none', () => {
+    const seed = seedFromResource({ ...resource, note: '' })
+    expect(seed.paragraphs).toEqual([resource.title, ''])
+  })
+})
+
+describe('ComposerSeed format', () => {
+  it('every existing seedFromX helper omits format, defaulting to post at draft-creation time', () => {
+    expect(seedFromIdea(idea).format).toBeUndefined()
+    expect(seedFromInsight('x').format).toBeUndefined()
+    expect(seedFromNewsletter(issue).format).toBeUndefined()
   })
 })
