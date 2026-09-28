@@ -56,6 +56,7 @@ describe('contentService — drafts row <-> camelCase mapper', () => {
     excerpt: 'first paragraph',
     pillar: 'Org' as const,
     stage: 'draft',
+    format: 'post',
     bs_check: 'passed',
     bs_check_note: 'Looks good.',
     voice_match: 72,
@@ -79,6 +80,7 @@ describe('contentService — drafts row <-> camelCase mapper', () => {
       id: 'draft_1',
       title: 'A test draft',
       paragraphs: ['first paragraph', 'second paragraph'],
+      format: 'post',
       bsCheck: 'passed',
       bsCheckNote: 'Looks good.',
       voiceMatch: 72,
@@ -94,6 +96,13 @@ describe('contentService — drafts row <-> camelCase mapper', () => {
   it('round-trips draftToInsertRow(userId, rowToDraft(row)) back to the original row plus user_id', () => {
     const draft = rowToDraft(draftRow)
     expect(draftToInsertRow(USER_ID, draft)).toEqual({ ...draftRow, user_id: USER_ID })
+  })
+
+  it('maps the article format through both directions', () => {
+    const articleRow = { ...draftRow, id: 'draft_2', format: 'article' }
+    const draft = rowToDraft(articleRow)
+    expect(draft.format).toBe('article')
+    expect(draftToInsertRow(USER_ID, draft)).toEqual({ ...articleRow, user_id: USER_ID })
   })
 })
 

@@ -15,6 +15,7 @@ function makeDraft(overrides: Partial<Draft> = {}): Draft {
     excerpt: 'hello',
     pillar: null,
     stage: 'draft',
+    format: 'post',
     bsCheck: 'not_run',
     bsCheckNote: '',
     voiceMatch: 50,
@@ -71,6 +72,18 @@ describe('contentReducer — CREATE_DRAFT', () => {
       visualAttached: false,
       hashtagsAdded: false,
     })
+  })
+
+  it('defaults format to post when the seed omits it', () => {
+    const seed: ComposerSeed = { title: 't', paragraphs: ['t'], pillar: null }
+    const next = contentReducer(emptyState(), { type: 'CREATE_DRAFT', seed, id: 'd1' })
+    expect(next.drafts[0].format).toBe('post')
+  })
+
+  it('carries an explicit article format from the seed through to the new draft', () => {
+    const seed: ComposerSeed = { title: 't', paragraphs: ['t'], pillar: null, format: 'article' }
+    const next = contentReducer(emptyState(), { type: 'CREATE_DRAFT', seed, id: 'd1' })
+    expect(next.drafts[0].format).toBe('article')
   })
 })
 

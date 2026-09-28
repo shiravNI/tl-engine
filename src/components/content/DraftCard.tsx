@@ -22,6 +22,7 @@ export function DraftCard({ draft, actions }: { draft: Draft; actions?: ReactNod
       </div>
       <p className="text-[12px] text-muted">{draft.excerpt}</p>
       <div className="flex flex-wrap items-center gap-1.5">
+        {draft.format === 'article' && <Pill tone="accent">Article</Pill>}
         {draft.bsCheck === 'passed' && (
           <Pill tone="success">
             <Icon name="shield" className="h-3 w-3" /> BS check: passed

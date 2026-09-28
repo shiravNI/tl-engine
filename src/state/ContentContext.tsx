@@ -102,6 +102,7 @@ export function buildDraftFromSeed(
     excerpt: seed.paragraphs[0] ?? '',
     pillar: seed.pillar,
     stage: 'draft',
+    format: seed.format ?? 'post',
     bsCheck: 'not_run',
     bsCheckNote: '',
     voiceMatch: voiceMatchSeed,

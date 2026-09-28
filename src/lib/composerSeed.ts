@@ -1,4 +1,4 @@
-import type { Idea, NewsletterIssue, Pillar } from '@/data/types'
+import type { DraftFormat, Idea, NewsletterIssue, Pillar } from '@/data/types'
 
 /**
  * "Draft it from this insight" / "started from Brain idea" / newsletter
@@ -18,6 +18,9 @@ export interface ComposerSeed {
   sourceLabel?: string
   sourceIdeaId?: string
   pillar: Pillar | null
+  /** Defaults to `'post'` in `buildDraftFromSeed` — every existing
+   * `seedFromX` below omits it. */
+  format?: DraftFormat
 }
 
 export function seedFromIdea(idea: Idea): ComposerSeed {

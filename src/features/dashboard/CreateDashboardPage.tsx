@@ -7,6 +7,12 @@ import { Button } from '@/components/primitives/Button'
 import { Checkbox } from '@/components/primitives/Checkbox'
 import { ProgressBar } from '@/components/primitives/ProgressBar'
 import { DashedPlaceholder } from '@/components/primitives/DashedPlaceholder'
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRoot,
+  DropdownMenuTrigger,
+} from '@/components/primitives/DropdownMenu'
 import { IdeaCard } from '@/components/content/IdeaCard'
 import { DraftCard } from '@/components/content/DraftCard'
 import { useContent } from '@/state/ContentContext'
@@ -121,10 +127,20 @@ export function CreateDashboardPage() {
               <Icon name="bulb" className="h-[15px] w-[15px]" />
               Brain dump
             </Button>
-            <Button variant="primary" onClick={() => navigate('/create/drafts/new')}>
-              <Icon name="plus" className="h-[15px] w-[15px]" />
-              New draft
-            </Button>
+            <DropdownMenuRoot>
+              <DropdownMenuTrigger asChild>
+                <Button variant="primary">
+                  <Icon name="plus" className="h-[15px] w-[15px]" />
+                  New draft
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onSelect={() => navigate('/create/drafts/new')}>Post</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate('/create/drafts/new?format=article')}>
+                  Article
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenuRoot>
           </div>
         </div>
         <div className="mt-5 flex gap-5">

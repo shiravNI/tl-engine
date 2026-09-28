@@ -55,6 +55,14 @@ export interface ChecklistState {
   hashtagsAdded: boolean
 }
 
+/** `'post'` is the default, short-form LinkedIn-shaped draft (char-capped,
+ * title auto-derived from the first line). `'article'` is long-form — same
+ * pipeline (stage, BS-check, voice-match, humanize), only the composer's
+ * layout and a display badge differ. Deliberately a field on `Draft`, not a
+ * parallel type — see Carousel's `VideoItem`/`CarouselDeck` split for the
+ * data-model duplication this avoids. */
+export type DraftFormat = 'post' | 'article'
+
 export interface Draft {
   id: string
   title: string
@@ -63,12 +71,13 @@ export interface Draft {
   excerpt: string
   pillar: Pillar | null
   stage: ContentStage
+  format: DraftFormat
   bsCheck: BsCheckStatus
   bsCheckNote: string
   voiceMatch: number
   aiTexture: number
   sourceIdeaId?: string
-  sourceType?: 'idea' | 'insight' | 'newsletter'
+  sourceType?: 'idea' | 'insight' | 'newsletter' | 'resource'
   sourceLabel?: string
   imageUrl?: string
   imageFileName?: string

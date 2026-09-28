@@ -50,3 +50,11 @@ describe('seedFromNewsletter', () => {
     expect(seed.sourceLabel).toBe(issue.headline)
   })
 })
+
+describe('ComposerSeed format', () => {
+  it('every existing seedFromX helper omits format, defaulting to post at draft-creation time', () => {
+    expect(seedFromIdea(idea).format).toBeUndefined()
+    expect(seedFromInsight('x').format).toBeUndefined()
+    expect(seedFromNewsletter(issue).format).toBeUndefined()
+  })
+})

@@ -18,6 +18,7 @@ import type {
   ChecklistState,
   ContentStage,
   Draft,
+  DraftFormat,
   Idea,
   Pillar,
   PostAnalytics,
@@ -103,6 +104,7 @@ interface DraftRow {
   excerpt: string
   pillar: string | null
   stage: string
+  format: string
   bs_check: string
   bs_check_note: string
   voice_match: number
@@ -128,6 +130,7 @@ export function rowToDraft(row: DraftRow): Draft {
     excerpt: row.excerpt,
     pillar: row.pillar as Pillar | null,
     stage: row.stage as ContentStage,
+    format: row.format as DraftFormat,
     bsCheck: row.bs_check as Draft['bsCheck'],
     bsCheckNote: row.bs_check_note,
     voiceMatch: row.voice_match,
@@ -155,6 +158,7 @@ export function draftToInsertRow(userId: string, draft: Draft): Record<string, u
     excerpt: draft.excerpt,
     pillar: draft.pillar,
     stage: draft.stage,
+    format: draft.format,
     bs_check: draft.bsCheck,
     bs_check_note: draft.bsCheckNote,
     voice_match: draft.voiceMatch,

@@ -21,6 +21,7 @@ function makeDraft(overrides: Partial<Draft> = {}): Draft {
     excerpt: 'hello',
     pillar: null,
     stage: 'draft',
+    format: 'post',
     bsCheck: 'not_run',
     bsCheckNote: '',
     voiceMatch: 0,

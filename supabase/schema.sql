@@ -163,6 +163,9 @@ create table public.drafts (
   excerpt          text not null default '',
   pillar           text,
   stage            text not null default 'draft',
+  -- `'post'` (short-form, char-capped) or `'article'` (long-form) — same
+  -- pipeline either way, only the composer's layout differs client-side.
+  format           text not null default 'post' check (format in ('post', 'article')),
   bs_check         text not null default 'not_run',
   bs_check_note    text not null default '',
   voice_match      int not null default 0,
