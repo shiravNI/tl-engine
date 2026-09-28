@@ -26,7 +26,7 @@ const VISIBLE_IDEAS = 4
 
 export function CreateDashboardPage() {
   const navigate = useNavigate()
-  const { ideas, drafts, posts, addIdea, setDraftStage, runRoastCheck, loading } = useContent()
+  const { ideas, drafts, posts, addIdea, setDraftStage, runRoastCheck, generateAgentDraft, loading } = useContent()
   const { tasks, toggleTask, addTask, badges } = useGamification()
   const [showAllIdeas, setShowAllIdeas] = useState(false)
   const [addingIdea, setAddingIdea] = useState(false)
@@ -34,6 +34,21 @@ export function CreateDashboardPage() {
   const [addingTask, setAddingTask] = useState(false)
   const [taskDraftText, setTaskDraftText] = useState('')
   const [promptStarters, setPromptStarters] = useState(() => pickPromptStarters())
+  const [draftingArticle, setDraftingArticle] = useState(false)
+  const [draftError, setDraftError] = useState<string | null>(null)
+
+  async function draftArticleForMe() {
+    setDraftingArticle(true)
+    setDraftError(null)
+    try {
+      const draft = await generateAgentDraft({ format: 'article' })
+      navigate(`/create/drafts/${draft.id}`)
+    } catch (e) {
+      setDraftError(e instanceof Error ? e.message : 'Drafting failed.')
+    } finally {
+      setDraftingArticle(false)
+    }
+  }
 
   const activeIdeas = ideas.filter((i) => !i.archivedAt)
   const draftStage = drafts.filter((d) => d.stage === 'draft')
@@ -151,12 +166,20 @@ export function CreateDashboardPage() {
               <DropdownMenuContent>
                 <DropdownMenuItem onSelect={() => navigate('/create/drafts/new')}>Post</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => navigate('/create/drafts/new?format=article')}>
-                  Article
+                  Article — start from scratch
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void draftArticleForMe()} disabled={draftingArticle}>
+                  {draftingArticle ? 'Drafting…' : 'Article — draft it for me'}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenuRoot>
           </div>
         </div>
+        {draftError && (
+          <div className="mt-3 rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-[13px] text-danger">
+            {draftError}
+          </div>
+        )}
         <div className="mt-5 flex gap-5">
           <div className="border-b-2 border-accent pb-3 text-[13px] font-semibold text-ink">Create</div>
           <button

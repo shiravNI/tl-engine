@@ -67,14 +67,15 @@ function SubRow({ label, to, active }: { label: string; to?: string; active?: bo
 
 export function SideNav({ variant }: SideNavProps) {
   const location = useLocation()
-  const { ideas } = useContent()
-  const ideaCount = ideas.filter((i) => !i.archivedAt).length
+  const { brainMaterials } = useContent()
+  const brainMaterialCount = brainMaterials.length
   const path = location.pathname
 
   const onCreate = path.startsWith('/create')
   const onNewsletter = path.startsWith('/newsletter')
   const onInsights = path.startsWith('/insights')
   const onBrain = path.startsWith('/brain')
+  const onOutput = path.startsWith('/output')
 
   if (variant === 'abbreviated') {
     return (
@@ -88,7 +89,7 @@ export function SideNav({ variant }: SideNavProps) {
             <NavRow icon="core" label="Core" disabled />
           </div>
         </Tooltip>
-        <NavRow icon="send" label="Output" to="/insights/posts" />
+        <NavRow icon="send" label="Output" to="/output" active={onOutput} />
         <NavRow icon="folder" label="Archive" to="/archive" active={path.startsWith('/archive')} />
       </nav>
     )
@@ -142,14 +143,14 @@ export function SideNav({ variant }: SideNavProps) {
         label="Brain"
         to="/brain"
         active={onBrain}
-        trailing={!locked && <Pill className="ml-auto">{ideaCount}</Pill>}
+        trailing={!locked && <Pill className="ml-auto">{brainMaterialCount}</Pill>}
       />
       <Tooltip content="Core isn't part of this preview yet">
         <div>
           <NavRow icon="core" label="Core" disabled />
         </div>
       </Tooltip>
-      <NavRow icon="send" label="Output" to="/insights/posts" disabled={locked} />
+      <NavRow icon="send" label="Output" to="/output" active={onOutput} disabled={locked} />
       {!locked && <NavRow icon="trophy" label="Milestones" to="/milestones" active={path === '/milestones'} />}
       {!locked && <NavRow icon="folder" label="Archive" to="/archive" active={path.startsWith('/archive')} />}
       <div className="flex-1" />

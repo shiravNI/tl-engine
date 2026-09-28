@@ -17,13 +17,12 @@ export interface GenerateDraftInput {
 export async function generateAgentDraft(input: GenerateDraftInput = {}): Promise<Draft> {
   const { data, error } = await supabase.functions.invoke('generate-drafts', { body: input })
   if (error) {
-    // Supabase's client wraps a non-2xx response in a generic error whose
-    // own message isn't useful — the function's own JSON body is what has
-    // the real, user-facing reason, but functions.invoke only exposes it
-    // via the error's `context` response on some versions, so fall back
-    // to a clear generic message rather than showing a stack-shaped string.
-    const details = (error as { context?: { error?: string } }).context?.error
-    throw new Error(details || 'Drafting failed — try again in a moment.')
+    // On a non-2xx response, supabase-js's error carries the raw Response
+    // on `.context` (not already-parsed) — read its real JSON body for the
+    // function's own user-facing reason instead of a generic network error.
+    const context = (error as { context?: Response }).context
+    const details = context ? await context.json().catch(() => null) : null
+    throw new Error(details?.error || 'Drafting failed — try again in a moment.')
   }
   if (data?.error) throw new Error(data.error)
   return rowToDraft(data.draft)

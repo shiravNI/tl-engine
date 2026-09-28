@@ -38,6 +38,8 @@ import {
   insertBrainMaterial,
   uploadBrainFile,
 } from '@/data/services/brainMaterialService'
+import { generateAgentDraft as generateAgentDraftRequest, type GenerateDraftInput } from '@/data/services/agentDraftingService'
+import { insertAgentFeedback } from '@/data/services/agentFeedbackService'
 import { useAppShell } from '@/state/AppShellContext'
 import { canTransitionContentStage, canTransitionVideoStage } from '@/lib/statusPipeline'
 import { makeId } from '@/lib/id'
@@ -89,6 +91,7 @@ type ContentAction =
   | { type: 'DELETE_RESOURCE'; id: string }
   | { type: 'ADD_BRAIN_MATERIAL'; material: BrainMaterial }
   | { type: 'DELETE_BRAIN_MATERIAL'; id: string }
+  | { type: 'ADD_DRAFT'; draft: Draft }
   | { type: 'SET_POSTS'; posts: PostAnalytics[] }
   | { type: 'ADD_CAROUSEL_DECK'; deck: CarouselDeck }
   | { type: 'DELETE_CAROUSEL_DECK'; id: string }
@@ -310,6 +313,9 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
     case 'DELETE_BRAIN_MATERIAL':
       return { ...state, brainMaterials: state.brainMaterials.filter((m) => m.id !== action.id) }
 
+    case 'ADD_DRAFT':
+      return { ...state, drafts: [action.draft, ...state.drafts] }
+
     case 'SET_POSTS':
       return { ...state, posts: action.posts }
 
@@ -362,6 +368,12 @@ interface ContentContextValue extends ContentState {
    * resolve against the user's real existing rows before the UI can show
    * an accurate merged result. */
   importPosts: (rows: UploadedPostRow[]) => Promise<void>
+  /** Calls the real `generate-drafts` edge function and adds the resulting
+   * agent-authored draft to local state. Throws the function's own
+   * user-facing error message (missing key, thin Voice Card, nothing to
+   * draft from) — callers show it directly, there's nothing to translate. */
+  generateAgentDraft: (input: GenerateDraftInput) => Promise<Draft>
+  recordAgentFeedback: (input: { draftId: string; action: 'rejected' | 'edited'; reason: string }) => void
 }
 
 const ContentContext = createContext<ContentContextValue | undefined>(undefined)
@@ -614,6 +626,14 @@ export function ContentProvider({ children }: { children: ReactNode }) {
         await upsertUploadedPosts(userId, rows)
         const posts = await fetchPosts(userId)
         dispatch({ type: 'SET_POSTS', posts })
+      },
+      generateAgentDraft: async (input) => {
+        const draft = await generateAgentDraftRequest(input)
+        dispatch({ type: 'ADD_DRAFT', draft })
+        return draft
+      },
+      recordAgentFeedback: (input) => {
+        void insertAgentFeedback(userId, input).catch((e) => reportWriteError('recordAgentFeedback', e))
       },
     }),
     [state, loading, createDraft, userId],

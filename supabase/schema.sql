@@ -444,6 +444,46 @@ create policy "agent_feedback_owner" on public.agent_feedback
   using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 create index agent_feedback_user_created_idx on public.agent_feedback (user_id, created_at desc);
 
+-- Reference material the cast member feeds in — own past posts, posts they
+-- admire, project/reference docs. Distinct from `resources` (link-dump
+-- seeds for a single draft): this is context for the Voice Card and the
+-- `generate-drafts` edge function's research pass (supabase/functions/).
+create table public.brain_materials (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null references auth.users(id) on delete cascade,
+  kind         text not null check (kind in ('own_post', 'admired_post', 'reference_doc')),
+  title        text not null default '',
+  text_content text,
+  file_path    text,
+  file_name    text,
+  source_url   text,
+  created_at   timestamptz not null default now()
+);
+alter table public.brain_materials enable row level security;
+create policy "brain_materials_owner" on public.brain_materials
+  for all to authenticated
+  using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+create index brain_materials_user_created_idx on public.brain_materials (user_id, created_at desc);
+
+-- Private storage bucket for Brain file uploads. Not public: access is
+-- only via the RLS policies below, scoped to each user's own folder (the
+-- object path is always `{user_id}/{uuid}.ext` — never a user-provided
+-- filename — enforced client-side in brainMaterialService.ts's upload
+-- helper, with a fixed .txt/.md extension allowlist and a 2MB size cap).
+insert into storage.buckets (id, name, public)
+values ('brain-uploads', 'brain-uploads', false)
+on conflict (id) do nothing;
+
+create policy "brain_uploads_owner_select" on storage.objects
+  for select to authenticated
+  using (bucket_id = 'brain-uploads' and (storage.foldername(name))[1] = (select auth.uid()::text));
+create policy "brain_uploads_owner_insert" on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'brain-uploads' and (storage.foldername(name))[1] = (select auth.uid()::text));
+create policy "brain_uploads_owner_delete" on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'brain-uploads' and (storage.foldername(name))[1] = (select auth.uid()::text));
+
 -- ============================================================================
 -- 4. handle_new_user() — signup provisioning + @naturalint.com restriction
 -- ============================================================================
