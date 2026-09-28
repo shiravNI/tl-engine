@@ -18,11 +18,14 @@ import {
   fetchVideoItems,
   insertDraft,
   insertIdea,
+  insertPost,
   insertVideoItem,
   setIdeaArchivedAt,
   updateCarouselSlideRow,
   updateDraftRow,
   updateVideoItemStage,
+  upsertUploadedPosts,
+  type UploadedPostRow,
 } from '@/data/services/contentService'
 import { fetchVoiceCard } from '@/data/services/onboardingService'
 import { deleteResource, fetchResources, insertResource } from '@/data/services/resourceService'
@@ -62,7 +65,7 @@ type ContentAction =
   | { type: 'UPDATE_DRAFT'; id: string; patch: Partial<Draft> }
   | { type: 'RUN_ROAST'; id: string }
   | { type: 'TOGGLE_CHECKLIST'; id: string; key: keyof Draft['checklist'] }
-  | { type: 'SET_DRAFT_STAGE'; id: string; stage: ContentStage; scheduledFor?: string }
+  | { type: 'SET_DRAFT_STAGE'; id: string; stage: ContentStage; scheduledFor?: string; postId?: string }
   | { type: 'RESTORE_DRAFT'; id: string }
   | { type: 'DELETE_ARCHIVED_DRAFT'; id: string }
   | { type: 'DELETE_ARCHIVED_IDEA'; id: string }
@@ -73,6 +76,7 @@ type ContentAction =
   | { type: 'REGENERATE_CAROUSEL'; deckId: string }
   | { type: 'ADD_RESOURCE'; resource: Resource }
   | { type: 'DELETE_RESOURCE'; id: string }
+  | { type: 'SET_POSTS'; posts: PostAnalytics[] }
 
 /** Pure so `CREATE_DRAFT` and the `createDraft` wrapper's fire-and-forget
  * insert build the exact same object. `voiceMatchSeed` is the new
@@ -107,6 +111,24 @@ export function buildDraftFromSeed(
     },
     createdAt: now,
     updatedAt: now,
+  }
+}
+
+/** Pure so the reducer's optimistic `SET_DRAFT_STAGE` case and the
+ * `setDraftStage` wrapper's fire-and-forget `insertPost` build the exact
+ * same row (same `id` too, passed in by the caller) — same shape
+ * convention as `buildDraftFromSeed` above. */
+export function buildPublishedPost(draft: Draft, publishedAt: string, id: string): PostAnalytics {
+  return {
+    id,
+    draftId: draft.id,
+    title: draft.title,
+    pillar: draft.pillar ?? 'Untagged',
+    publishedAt: publishedAt.slice(0, 10),
+    impressions: 0,
+    engagementRate: 0,
+    saves: 0,
+    trend: [0, 0, 0, 0, 0],
   }
 }
 
@@ -200,20 +222,7 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
       let posts = state.posts
 
       if (action.stage === 'published') {
-        posts = [
-          {
-            id: makeId('post'),
-            draftId: draft.id,
-            title: draft.title,
-            pillar: draft.pillar ?? 'Untagged',
-            publishedAt: now.slice(0, 10),
-            impressions: 0,
-            engagementRate: 0,
-            saves: 0,
-            trend: [0, 0, 0, 0, 0],
-          },
-          ...state.posts,
-        ]
+        posts = [buildPublishedPost(draft, now, action.postId ?? makeId('post')), ...state.posts]
       }
 
       return {
@@ -279,6 +288,9 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
     case 'DELETE_RESOURCE':
       return { ...state, resources: state.resources.filter((r) => r.id !== action.id) }
 
+    case 'SET_POSTS':
+      return { ...state, posts: action.posts }
+
     default:
       return state
   }
@@ -306,6 +318,13 @@ interface ContentContextValue extends ContentState {
   createResource: (input: Omit<Resource, 'id' | 'createdAt'>) => string
   deleteResource: (id: string) => void
   getResource: (id: string) => Resource | undefined
+  /** Bulk-imports posts parsed from an uploaded `.xlsx` export — matches
+   * existing rows by `(title, publishedAt)` so re-uploading updates
+   * instead of duplicating. Genuinely async (not the usual
+   * optimistic-dispatch-then-fire-and-forget pattern): the upload needs to
+   * resolve against the user's real existing rows before the UI can show
+   * an accurate merged result. */
+  importPosts: (rows: UploadedPostRow[]) => Promise<void>
 }
 
 const ContentContext = createContext<ContentContextValue | undefined>(undefined)
@@ -342,7 +361,7 @@ export function ContentProvider({ children }: { children: ReactNode }) {
     Promise.all([
       fetchIdeas(userId),
       fetchDrafts(userId),
-      fetchPosts(),
+      fetchPosts(userId),
       fetchVideoItems(userId),
       fetchCarouselDecks(userId),
       fetchVoiceCard(userId),
@@ -422,16 +441,21 @@ export function ContentProvider({ children }: { children: ReactNode }) {
       setDraftStage: (id, stage, scheduledFor) => {
         const draft = state.drafts.find((d) => d.id === id)
         if (!draft || !canTransitionContentStage(draft.stage, stage)) return
-        dispatch({ type: 'SET_DRAFT_STAGE', id, stage, scheduledFor })
+        const postId = stage === 'published' ? makeId('post') : undefined
+        dispatch({ type: 'SET_DRAFT_STAGE', id, stage, scheduledFor, postId })
         const now = new Date().toISOString()
         const patch: Partial<Draft> = { stage }
         if (stage === 'scheduled') patch.scheduledFor = scheduledFor ?? now
         if (stage === 'published') patch.publishedAt = now
         if (stage === 'archived') patch.archivedAt = now
         void updateDraftRow(id, patch).catch((e) => reportWriteError('setDraftStage', e))
-        // Publishing also creates a local `PostAnalytics` row (see the
-        // reducer) — `posts` is explicitly deferred to phase 2, so that
-        // row is optimistic-only for now and isn't written to Supabase.
+        // Publishing also creates a real `posts` row — same `id` as the
+        // optimistic one the reducer just added to local state, so this
+        // fire-and-forget write persists exactly what's already on screen.
+        if (stage === 'published' && postId) {
+          const post = buildPublishedPost(draft, now, postId)
+          void insertPost(userId, post).catch((e) => reportWriteError('setDraftStage:insertPost', e))
+        }
       },
       restoreDraft: (id) => {
         dispatch({ type: 'RESTORE_DRAFT', id })
@@ -479,6 +503,11 @@ export function ContentProvider({ children }: { children: ReactNode }) {
         void deleteResource(id).catch((e) => reportWriteError('deleteResource', e))
       },
       getResource: (id) => state.resources.find((r) => r.id === id),
+      importPosts: async (rows) => {
+        await upsertUploadedPosts(userId, rows)
+        const posts = await fetchPosts(userId)
+        dispatch({ type: 'SET_POSTS', posts })
+      },
     }),
     [state, loading, createDraft, userId],
   )

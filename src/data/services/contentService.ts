@@ -1,17 +1,10 @@
-// Ideas, drafts, video items and carousel decks against Supabase — row
-// (snake_case) <-> camelCase mappers live here since supabase-js doesn't
-// auto-convert. RLS (flat `auth.uid() = user_id` policies, see
+// Ideas, drafts, posts, video items and carousel decks against Supabase —
+// row (snake_case) <-> camelCase mappers live here since supabase-js
+// doesn't auto-convert. RLS (flat `auth.uid() = user_id` policies, see
 // supabase/schema.sql) is the sole isolation mechanism; `userId` is still
 // threaded through every write because an insert's `user_id` column has to
 // be set for the `with check (auth.uid() = user_id)` clause to pass.
-//
-// `posts` is explicitly deferred to phase 2 (analytics-derived, not
-// user-authored — see the plan) — there is no `posts` table yet, so
-// `fetchPosts`/`fetchPostPerformance`-style reads still come from the
-// fixture below, unchanged from before this migration.
 import { supabase } from '@/lib/supabaseClient'
-import { posts as postsFixture } from '@/data/fixtures/posts'
-import { mockAsync } from '@/lib/mockAsync'
 import type {
   CarouselDeck,
   CarouselSlide,
@@ -234,11 +227,107 @@ export async function deleteDraft(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// posts — deferred to phase 2, stays fixture-backed (see file header)
+// posts — real per-user post-performance data. A row is inserted the
+// moment a draft is published (see ContentContext's setDraftStage), and/or
+// upserted from a real .xlsx export the user uploads themselves.
 // ---------------------------------------------------------------------------
 
-export async function fetchPosts(): Promise<PostAnalytics[]> {
-  return mockAsync(postsFixture, 150)
+interface PostRow {
+  id: string
+  draft_id: string | null
+  title: string
+  pillar: string
+  published_at: string
+  impressions: number
+  engagement_rate: number
+  saves: number
+  trend: number[]
+  archived_at: string | null
+  created_at: string
+}
+
+export function rowToPost(row: PostRow): PostAnalytics {
+  return {
+    id: row.id,
+    draftId: row.draft_id ?? undefined,
+    title: row.title,
+    pillar: row.pillar as Pillar,
+    publishedAt: row.published_at,
+    impressions: row.impressions,
+    engagementRate: row.engagement_rate,
+    saves: row.saves,
+    trend: row.trend ?? [],
+    archivedAt: row.archived_at ?? undefined,
+  }
+}
+
+export function postToInsertRow(userId: string, post: PostAnalytics): Record<string, unknown> {
+  return {
+    id: post.id,
+    user_id: userId,
+    draft_id: post.draftId ?? null,
+    title: post.title,
+    pillar: post.pillar,
+    published_at: post.publishedAt,
+    impressions: post.impressions,
+    engagement_rate: post.engagementRate,
+    saves: post.saves,
+    trend: post.trend,
+    archived_at: post.archivedAt ?? null,
+  }
+}
+
+export async function fetchPosts(userId: string): Promise<PostAnalytics[]> {
+  const { data, error } = await supabase
+    .from('posts')
+    .select('*')
+    .eq('user_id', userId)
+    .order('published_at', { ascending: false })
+  if (error || !data) return []
+  return (data as PostRow[]).map(rowToPost)
+}
+
+export async function insertPost(userId: string, post: PostAnalytics): Promise<void> {
+  await supabase.from('posts').insert(postToInsertRow(userId, post))
+}
+
+/** A row parsed from an uploaded `.xlsx` export — no `id`/`trend`/`draftId`
+ * yet, since an uploaded row was never synthesized from a draft. */
+export type UploadedPostRow = Pick<
+  PostAnalytics,
+  'title' | 'pillar' | 'publishedAt' | 'impressions' | 'engagementRate' | 'saves'
+>
+
+/** Matches uploaded rows against the user's existing posts by
+ * `(title, publishedAt)` so re-uploading the same export updates the
+ * existing row instead of duplicating it. No DB-level unique constraint
+ * backs this pairing, so the match happens here in application code rather
+ * than via a Postgres `upsert(... onConflict)`. */
+export async function upsertUploadedPosts(userId: string, rows: UploadedPostRow[]): Promise<void> {
+  const existing = await fetchPosts(userId)
+  const keyOf = (title: string, publishedAt: string) => `${title}::${publishedAt}`
+  const existingByKey = new Map(existing.map((p) => [keyOf(p.title, p.publishedAt), p]))
+
+  for (const row of rows) {
+    const match = existingByKey.get(keyOf(row.title, row.publishedAt))
+    if (match) {
+      await supabase
+        .from('posts')
+        .update({
+          pillar: row.pillar,
+          impressions: row.impressions,
+          engagement_rate: row.engagementRate,
+          saves: row.saves,
+        })
+        .eq('id', match.id)
+    } else {
+      await insertPost(userId, {
+        id: crypto.randomUUID(),
+        trend: [],
+        ...row,
+      })
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
