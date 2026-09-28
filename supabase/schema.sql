@@ -28,11 +28,12 @@
 --     the signup outright — GoTrue surfaces this as a signup error).
 --   - Every account starts genuinely empty. This file creates no seed/demo
 --     rows for any table, by design.
---   - Deferred to a later migration (do not add here): `conversations` /
---     `chat_messages`, `posts` / `insight_snapshots`, `newsletter_issues`.
---     Because `posts` does not exist yet, `archive_entries` below only
---     unions `ideas` and `drafts` — add a third arm against `public.posts`
---     once that table ships.
+--   - `conversations` / `chat_messages` / `posts` / `agent_feedback` (added
+--     in the "make it real" pass) follow the same flat RLS pattern as
+--     everything else. `newsletter_issues` was deliberately never added —
+--     the newsletter is a computed digest over the user's own real
+--     ideas/resources/posts, not a second stored-content system (see the
+--     plan file's Phase 4).
 -- ============================================================================
 
 create extension if not exists pgcrypto; -- gives us gen_random_uuid()
@@ -171,10 +172,17 @@ create table public.drafts (
   -- `'post'` (short-form, char-capped) or `'article'` (long-form) — same
   -- pipeline either way, only the composer's layout differs client-side.
   format           text not null default 'post' check (format in ('post', 'article')),
-  bs_check         text not null default 'not_run',
-  bs_check_note    text not null default '',
+  -- Real, deterministic cliché/corporate-speak detector output (see
+  -- src/lib/roast.ts) — replaces the earlier canned bs_check/ai_texture
+  -- fields, which never actually inspected the draft's own text.
+  slop_score       int not null default 0,
+  roast_verdict    text not null default '',
+  roast_flags      jsonb not null default '[]'::jsonb,
   voice_match      int not null default 0,
-  ai_texture       int not null default 0,
+  -- 'user' for anything the cast member started themselves; 'agent' for a
+  -- draft the AI drafting agent (Output tab) generated for review. Lets the
+  -- Output tab filter for its own pending items without a separate table.
+  origin           text not null default 'user' check (origin in ('user', 'agent')),
   source_idea_id   uuid references public.ideas(id) on delete set null,
   source_type      text,
   source_label     text,
@@ -356,6 +364,86 @@ create policy "resources_owner" on public.resources
 -- default sort, both ordered by (user_id, created_at desc).
 create index resources_user_created_idx on public.resources (user_id, created_at desc);
 
+-- Real per-user post-performance data — replaces a global fixture. A row is
+-- inserted here the moment a draft is published (client-side, alongside the
+-- draft's own stage update), and/or upserted from a real .xlsx export the
+-- user uploads themselves (LinkedIn doesn't guarantee per-person API
+-- access, so this is the only real path to real numbers).
+create table public.posts (
+  id               uuid primary key default gen_random_uuid(),
+  user_id          uuid not null references auth.users(id) on delete cascade,
+  draft_id         uuid references public.drafts(id) on delete set null,
+  title            text not null default '',
+  pillar           text not null default 'Untagged',
+  published_at     date not null default current_date,
+  impressions      int not null default 0,
+  engagement_rate  numeric not null default 0,
+  saves            int not null default 0,
+  trend            jsonb not null default '[]'::jsonb,
+  archived_at      timestamptz,
+  created_at       timestamptz not null default now()
+);
+alter table public.posts enable row level security;
+create policy "posts_owner" on public.posts
+  for all to authenticated
+  using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+create index posts_user_published_idx on public.posts (user_id, published_at desc);
+
+-- Chat, owned entirely by the cast member. The "Assistant" persona isn't a
+-- real second account — no role-aware cross-user RLS is needed here, this
+-- is just the thread's own record of what the assistant said, same as any
+-- other content this user owns. A `conversations` row is created lazily on
+-- first chat open, not seeded at signup.
+create table public.conversations (
+  id                    uuid primary key default gen_random_uuid(),
+  user_id               uuid not null references auth.users(id) on delete cascade,
+  assistant_name        text not null default 'Assistant',
+  assistant_initials    text not null default 'AI',
+  status                text not null default 'online',
+  last_activity_summary text not null default '',
+  created_at            timestamptz not null default now()
+);
+alter table public.conversations enable row level security;
+create policy "conversations_owner" on public.conversations
+  for all to authenticated
+  using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+
+create table public.chat_messages (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users(id) on delete cascade,
+  conversation_id uuid not null references public.conversations(id) on delete cascade,
+  author_type     text not null check (author_type in ('user', 'assistant', 'system')),
+  author_name     text not null default '',
+  author_initials text not null default '',
+  text            text not null default '',
+  kind            text not null default 'text' check (kind in ('text', 'draft_offer', 'help_flag', 'system_note')),
+  draft_id        uuid references public.drafts(id) on delete set null,
+  created_at      timestamptz not null default now()
+);
+alter table public.chat_messages enable row level security;
+create policy "chat_messages_owner" on public.chat_messages
+  for all to authenticated
+  using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+create index chat_messages_conversation_created_idx on public.chat_messages (conversation_id, created_at);
+
+-- The AI drafting agent's real learning signal: every time a user rejects
+-- or edits an agent-authored draft, the reason is captured here, and the
+-- next generation call reads recent reasons back into its own prompt. This
+-- is prompt-assembly from real history, not a fine-tuned model.
+create table public.agent_feedback (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  draft_id   uuid references public.drafts(id) on delete set null,
+  action     text not null check (action in ('rejected', 'edited')),
+  reason     text not null default '',
+  created_at timestamptz not null default now()
+);
+alter table public.agent_feedback enable row level security;
+create policy "agent_feedback_owner" on public.agent_feedback
+  for all to authenticated
+  using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+create index agent_feedback_user_created_idx on public.agent_feedback (user_id, created_at desc);
+
 -- ============================================================================
 -- 4. handle_new_user() — signup provisioning + @naturalint.com restriction
 -- ============================================================================
@@ -440,9 +528,16 @@ as
     coalesce(archived_at, updated_at) as last_touched,
     'Archived draft'::text as reason
   from public.drafts
-  where archived_at is not null;
+  where archived_at is not null
 
--- NOTE: `posts` is explicitly deferred to phase 2 (analytics-derived data,
--- not user-authored — see the plan's "Explicitly deferred" section). Once
--- a `public.posts` table ships, add a third `union all` arm here selecting
--- its archived rows the same way.
+  union all
+
+  select
+    id::text as id,
+    id::text as ref_id,
+    'post'::text as type,
+    title,
+    coalesce(archived_at, created_at) as last_touched,
+    'Archived post'::text as reason
+  from public.posts
+  where archived_at is not null;

@@ -73,14 +73,17 @@ const IDENTITY_QUESTION: OnboardingQuestion = {
 
 /** The fork. `option.id` doubles as the literal `ContentOrientation` value —
  * no separate mapping needed between "what was tapped" and "what mode
- * we're in" from here on. */
+ * we're in" from here on. Wording and labels (Thought Leader / Social
+ * Seller) match the `linkedin-voice-setup` skill's section 2.2 fork
+ * word-for-word — this catalog is a bounded, finite mirror of that
+ * open-ended interview, not an independently-authored one. */
 const ORIENTATION_QUESTION: OnboardingQuestion = {
   id: ORIENTATION_QUESTION_ID,
   phaseId: 'goals',
   prompt: "What's really driving this — personal visibility, or bringing in business?",
   options: [
-    { id: 'personal_brand', label: 'Visibility — recognition, speaking invites, career', primary: true },
-    { id: 'audience_sales', label: 'Business — trust with buyers or partners' },
+    { id: 'personal_brand', label: 'Thought Leader (TL) — recognition, speaking invites, career', primary: true },
+    { id: 'audience_sales', label: 'Social Seller — trust with buyers or partners' },
   ],
   followUpPrompt: 'Say more — what would success actually look like for you, concretely?',
 }
@@ -157,6 +160,30 @@ const OPINION_QUESTIONS_AUDIENCE_SALES: OnboardingQuestion[] = [
       { id: 'd', label: 'Promises that didn’t match reality' },
     ],
     followUpPrompt: 'Say more — what would you tell them if you could skip the sales pitch entirely?',
+  },
+  {
+    id: 'q_opinion_as_3',
+    phaseId: 'opinions',
+    prompt: 'Who are the people you sell to or partner with most often — what actually distinguishes them?',
+    options: [
+      { id: 'a', label: 'Their role or seniority', primary: true },
+      { id: 'b', label: 'Their industry or vertical' },
+      { id: 'c', label: 'Their company size or stage' },
+      { id: 'd', label: 'Their existing tooling or setup' },
+    ],
+    followUpPrompt: 'Say more — what’s a specific moment where you watched one of them realize something that changed how they saw the problem?',
+  },
+  {
+    id: 'q_opinion_as_4',
+    phaseId: 'opinions',
+    prompt: 'What’s your actual answer to the objection you hear most?',
+    options: [
+      { id: 'a', label: 'I show them proof, not a promise', primary: true },
+      { id: 'b', label: 'I reframe what they’re even measuring' },
+      { id: 'c', label: 'I point to someone just like them who was skeptical too' },
+      { id: 'd', label: 'I agree with part of it, then push back on the rest' },
+    ],
+    followUpPrompt: 'Say more — what’s the specific thing you say that actually lands?',
   },
 ]
 

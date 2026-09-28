@@ -161,7 +161,7 @@ describe('getInterviewQuestions', () => {
   it('swaps in the Audience/Sales-Led opinion questions once that orientation is chosen', () => {
     const questions = getInterviewQuestions('audience_sales')
     const opinionIds = questions.filter((q) => q.phaseId === 'opinions').map((q) => q.id)
-    expect(opinionIds).toEqual(['q_opinion_as_1', 'q_opinion_as_2'])
+    expect(opinionIds).toEqual(['q_opinion_as_1', 'q_opinion_as_2', 'q_opinion_as_3', 'q_opinion_as_4'])
   })
 
   it('always includes identity, orientation, and voice questions ahead of the opinions round', () => {
