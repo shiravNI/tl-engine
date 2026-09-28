@@ -21,6 +21,7 @@ import type {
   Idea,
   Pillar,
   PostAnalytics,
+  RoastFlag,
   ScriptBeats,
   VideoFormat,
   VideoItem,
@@ -103,10 +104,10 @@ interface DraftRow {
   excerpt: string
   pillar: string | null
   stage: string
-  bs_check: string
-  bs_check_note: string
+  slop_score: number
+  roast_verdict: string
+  roast_flags: RoastFlag[]
   voice_match: number
-  ai_texture: number
   source_idea_id: string | null
   source_type: string | null
   source_label: string | null
@@ -128,10 +129,10 @@ export function rowToDraft(row: DraftRow): Draft {
     excerpt: row.excerpt,
     pillar: row.pillar as Pillar | null,
     stage: row.stage as ContentStage,
-    bsCheck: row.bs_check as Draft['bsCheck'],
-    bsCheckNote: row.bs_check_note,
+    slopScore: row.slop_score,
+    roastVerdict: row.roast_verdict,
+    roastFlags: row.roast_flags ?? [],
     voiceMatch: row.voice_match,
-    aiTexture: row.ai_texture,
     sourceIdeaId: row.source_idea_id ?? undefined,
     sourceType: (row.source_type as Draft['sourceType']) ?? undefined,
     sourceLabel: row.source_label ?? undefined,
@@ -155,10 +156,10 @@ export function draftToInsertRow(userId: string, draft: Draft): Record<string, u
     excerpt: draft.excerpt,
     pillar: draft.pillar,
     stage: draft.stage,
-    bs_check: draft.bsCheck,
-    bs_check_note: draft.bsCheckNote,
+    slop_score: draft.slopScore,
+    roast_verdict: draft.roastVerdict,
+    roast_flags: draft.roastFlags,
     voice_match: draft.voiceMatch,
-    ai_texture: draft.aiTexture,
     source_idea_id: draft.sourceIdeaId ?? null,
     source_type: draft.sourceType ?? null,
     source_label: draft.sourceLabel ?? null,
@@ -183,10 +184,10 @@ function draftPatchToRow(patch: Partial<Draft>): Record<string, unknown> {
   if (patch.excerpt !== undefined) row.excerpt = patch.excerpt
   if (patch.pillar !== undefined) row.pillar = patch.pillar
   if (patch.stage !== undefined) row.stage = patch.stage
-  if (patch.bsCheck !== undefined) row.bs_check = patch.bsCheck
-  if (patch.bsCheckNote !== undefined) row.bs_check_note = patch.bsCheckNote
+  if (patch.slopScore !== undefined) row.slop_score = patch.slopScore
+  if (patch.roastVerdict !== undefined) row.roast_verdict = patch.roastVerdict
+  if (patch.roastFlags !== undefined) row.roast_flags = patch.roastFlags
   if (patch.voiceMatch !== undefined) row.voice_match = patch.voiceMatch
-  if (patch.aiTexture !== undefined) row.ai_texture = patch.aiTexture
   if (patch.imageUrl !== undefined) row.image_url = patch.imageUrl
   if (patch.imageFileName !== undefined) row.image_file_name = patch.imageFileName
   if (patch.checklist !== undefined) row.checklist = patch.checklist

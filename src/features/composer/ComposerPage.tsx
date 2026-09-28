@@ -15,6 +15,7 @@ import { useChat } from '@/state/ChatContext'
 import { seedFromIdea, seedFromInsight, seedFromNewsletter } from '@/lib/composerSeed'
 import { insightSnapshot } from '@/data/fixtures/insights'
 import { newsletterIssue } from '@/data/fixtures/newsletter'
+import { getRoastTier } from '@/lib/roast'
 import { cx } from '@/lib/cx'
 
 const CHAR_LIMIT = 3000
@@ -23,7 +24,7 @@ export function ComposerPage() {
   const { draftId } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { getDraft, createDraft, updateDraft, runBsCheck, humanizeDraft, toggleChecklistItem, setDraftStage, getIdea } =
+  const { getDraft, createDraft, updateDraft, runRoastCheck, toggleChecklistItem, setDraftStage, getIdea } =
     useContent()
   const { openBubble } = useChat()
   const seededRef = useRef(false)
@@ -85,6 +86,9 @@ export function ComposerPage() {
   }
 
   const charCount = editor.storage.characterCount.characters()
+  const roastTier = getRoastTier(draft.slopScore)
+  const roastTone = roastTier === 'clear' ? 'success' : roastTier === 'flagged' ? 'warn' : 'danger'
+  const roastTierLabel = roastTier === 'clear' ? 'Clear' : roastTier === 'flagged' ? 'Flagged' : 'Roasted'
 
   return (
     <div className="flex h-full flex-col">
@@ -191,48 +195,53 @@ export function ComposerPage() {
             <h3 className="text-[14px] font-semibold">Quality checks</h3>
 
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5">
-                <Icon
-                  name={draft.bsCheck === 'passed' ? 'check' : draft.bsCheck === 'needs_review' ? 'alert' : 'shield'}
+              <div className="flex items-baseline gap-1.5">
+                <span
                   className={cx(
-                    'h-3.5 w-3.5',
-                    draft.bsCheck === 'passed'
+                    'text-[22px] font-bold leading-none',
+                    roastTone === 'success'
                       ? 'text-success-fg'
-                      : draft.bsCheck === 'needs_review'
+                      : roastTone === 'warn'
                         ? 'text-warn-fg'
-                        : 'text-muted',
+                        : 'text-danger-fg',
                   )}
-                />
-                <span className="text-[12px] font-semibold text-body">
-                  BS check{draft.bsCheck === 'passed' ? ': green light' : draft.bsCheck === 'needs_review' ? ': review' : ''}
+                >
+                  {draft.slopScore}
                 </span>
+                <span className="text-[12px] text-muted">/10 slop</span>
               </div>
               <div className="flex items-baseline gap-1">
                 <span className="text-[12px] text-muted">Voice</span>
                 <span className="text-[13px] font-bold text-accent-dark">{draft.voiceMatch}%</span>
               </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-[12px] text-muted">AI texture</span>
-                <span className="text-[13px] font-bold text-success-fg">{draft.aiTexture}/10</span>
-              </div>
             </div>
 
-            <Disclosure label="Show check details">
+            <p className="text-[13px] font-semibold text-body">
+              {draft.roastVerdict || 'Not roasted yet — run the check to see how this really reads.'}
+            </p>
+
+            <Disclosure label="Show roast details">
               <div className="flex flex-col gap-3.5">
                 <div>
                   <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-[12px] font-semibold text-body">BS check</span>
-                    {draft.bsCheck === 'passed' && (
-                      <Pill className="border-transparent bg-success-fg text-cream">Green light</Pill>
-                    )}
-                    {draft.bsCheck === 'needs_review' && <Pill tone="warn">Needs review</Pill>}
+                    <span className="text-[12px] font-semibold text-body">Roast</span>
+                    <Pill tone={roastTone}>{roastTierLabel}</Pill>
                   </div>
-                  {draft.bsCheckNote ? (
-                    <p className="text-[12px] text-muted">{draft.bsCheckNote}</p>
+                  {draft.roastFlags.length > 0 ? (
+                    <div className="flex flex-col gap-2">
+                      {draft.roastFlags.map((flag, i) => (
+                        <div key={i} className="rounded-lg border border-border-soft bg-oat p-2.5">
+                          <p className="text-[12px] italic text-body">"{flag.quote}"</p>
+                          <p className="mt-1 text-[12px] text-muted">{flag.comment}</p>
+                        </div>
+                      ))}
+                    </div>
                   ) : (
-                    <Button size="sm" variant="secondary" onClick={() => runBsCheck(draft.id)}>
-                      Run BS check
-                    </Button>
+                    <p className="text-[12px] text-muted">
+                      {draft.roastVerdict
+                        ? 'Nothing quoted back at you — no corporate tics found.'
+                        : 'Run the roast to see specific lines called out.'}
+                    </p>
                   )}
                 </div>
 
@@ -248,28 +257,12 @@ export function ComposerPage() {
                     Sentence rhythm and directness both read as you. The parenthetical aside is a signature move.
                   </p>
                 </div>
-
-                <div className="h-px bg-border-soft" />
-
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-[12px] font-semibold text-body">AI texture</span>
-                    <span className="text-[12px] font-bold text-success-fg">{draft.aiTexture} / 10</span>
-                  </div>
-                  <p className="text-[12px] text-muted">No hollow openers, no "let that sink in." Reads human.</p>
-                  <p className="mt-2 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
-                    Watching for
-                  </p>
-                  <p className="mt-1 text-[12px] text-muted">
-                    "It's not X, it's Y" · "Quietly" · "Here's what gets me" · Em-dash overuse
-                  </p>
-                </div>
               </div>
             </Disclosure>
 
-            <Button variant="secondary" className="justify-center" onClick={() => humanizeDraft(draft.id)}>
-              <Icon name="spark" className="h-3.5 w-3.5" />
-              Humanize this draft
+            <Button variant="secondary" className="justify-center" onClick={() => runRoastCheck(draft.id)}>
+              <Icon name="flag" className="h-3.5 w-3.5" />
+              Roast this draft
             </Button>
           </Card>
 

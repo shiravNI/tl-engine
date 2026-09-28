@@ -10,6 +10,7 @@ import { DashedPlaceholder } from '@/components/primitives/DashedPlaceholder'
 import { useContent } from '@/state/ContentContext'
 import { useGamification, countDoneTasks } from '@/state/GamificationContext'
 import { cx } from '@/lib/cx'
+import { getRoastTier } from '@/lib/roast'
 import type { Idea } from '@/data/types'
 
 const VISIBLE_IDEAS = 4
@@ -37,7 +38,7 @@ function IdeaCard({ idea }: { idea: Idea }) {
 
 export function CreateDashboardPage() {
   const navigate = useNavigate()
-  const { ideas, drafts, posts, addIdea, setDraftStage, runBsCheck, loading } = useContent()
+  const { ideas, drafts, posts, addIdea, setDraftStage, runRoastCheck, loading } = useContent()
   const { tasks, toggleTask, addTask, badges } = useGamification()
   const [showAllIdeas, setShowAllIdeas] = useState(false)
   const [addingIdea, setAddingIdea] = useState(false)
@@ -254,42 +255,40 @@ export function CreateDashboardPage() {
             <h3 className="text-[14px] font-semibold">Drafts</h3>
             <Pill>{draftStage.length}</Pill>
           </div>
-          {draftStage.map((draft) => (
-            <Card key={draft.id} className="flex flex-col gap-2.5 p-3.5">
-              <p className="text-[13.5px] font-semibold leading-tight">{draft.title}</p>
-              <p className="text-[12px] text-muted">{draft.excerpt}</p>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {draft.bsCheck === 'passed' && (
-                  <Pill tone="success">
-                    <Icon name="shield" className="h-3 w-3" /> BS check: passed
+          {draftStage.map((draft) => {
+            const roastTier = getRoastTier(draft.slopScore)
+            const roastTone = roastTier === 'clear' ? 'success' : roastTier === 'flagged' ? 'warn' : 'danger'
+            const roastLabel = roastTier === 'clear' ? 'Clear' : roastTier === 'flagged' ? 'Flagged' : 'Roasted'
+            return (
+              <Card key={draft.id} className="flex flex-col gap-2.5 p-3.5">
+                <p className="text-[13.5px] font-semibold leading-tight">{draft.title}</p>
+                <p className="text-[12px] text-muted">{draft.excerpt}</p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Pill tone={roastTone} className="max-w-full" title={draft.roastVerdict || undefined}>
+                    <Icon name={roastTier === 'clear' ? 'check' : roastTier === 'flagged' ? 'alert' : 'flag'} className="h-3 w-3 shrink-0" />
+                    <span className="min-w-0 truncate">Roast: {roastLabel}</span>
                   </Pill>
-                )}
-                {draft.bsCheck === 'needs_review' && (
-                  <Pill tone="warn" className="max-w-full" title={draft.bsCheckNote || undefined}>
-                    <Icon name="alert" className="h-3 w-3 shrink-0" />
-                    <span className="min-w-0 truncate">{draft.bsCheckNote || 'Needs review'}</span>
-                  </Pill>
-                )}
-                <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
-                  Voice {draft.voiceMatch}%
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => navigate(`/create/drafts/${draft.id}`)}>
-                  Edit
-                </Button>
-                {draft.bsCheck === 'passed' ? (
-                  <Button size="sm" variant="primary" onClick={() => setDraftStage(draft.id, 'scheduled')}>
-                    Mark scheduled to post
+                  <span className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
+                    Voice {draft.voiceMatch}%
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => navigate(`/create/drafts/${draft.id}`)}>
+                    Edit
                   </Button>
-                ) : (
-                  <Button size="sm" variant="secondary" onClick={() => runBsCheck(draft.id)}>
-                    Run BS check
-                  </Button>
-                )}
-              </div>
-            </Card>
-          ))}
+                  {roastTier === 'clear' ? (
+                    <Button size="sm" variant="primary" onClick={() => setDraftStage(draft.id, 'scheduled')}>
+                      Mark scheduled to post
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="secondary" onClick={() => runRoastCheck(draft.id)}>
+                      Roast this draft
+                    </Button>
+                  )}
+                </div>
+              </Card>
+            )
+          })}
           {draftStage.length === 0 && (
             <DashedPlaceholder className="p-4 text-center">No drafts waiting</DashedPlaceholder>
           )}

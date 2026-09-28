@@ -28,6 +28,7 @@ import { fetchVoiceCard } from '@/data/services/onboardingService'
 import { useAppShell } from '@/state/AppShellContext'
 import { canTransitionContentStage, canTransitionVideoStage } from '@/lib/statusPipeline'
 import { makeId } from '@/lib/id'
+import { runRoastDetector } from '@/lib/roast'
 import type {
   CarouselDeck,
   CarouselSlide,
@@ -56,8 +57,7 @@ type ContentAction =
   | { type: 'RESTORE_IDEA'; id: string }
   | { type: 'CREATE_DRAFT'; seed: ComposerSeed; id: string; now?: string; voiceMatchSeed?: number }
   | { type: 'UPDATE_DRAFT'; id: string; patch: Partial<Draft> }
-  | { type: 'RUN_BS_CHECK'; id: string }
-  | { type: 'HUMANIZE_DRAFT'; id: string }
+  | { type: 'RUN_ROAST'; id: string }
   | { type: 'TOGGLE_CHECKLIST'; id: string; key: keyof Draft['checklist'] }
   | { type: 'SET_DRAFT_STAGE'; id: string; stage: ContentStage; scheduledFor?: string }
   | { type: 'RESTORE_DRAFT'; id: string }
@@ -68,22 +68,6 @@ type ContentAction =
   | { type: 'ADD_VIDEO_ITEM'; item: VideoItem }
   | { type: 'UPDATE_CAROUSEL_SLIDE'; deckId: string; slideId: string; patch: Partial<CarouselSlide> }
   | { type: 'REGENERATE_CAROUSEL'; deckId: string }
-
-/** The exact note `RUN_BS_CHECK` sets — a module-level constant so the
- * reducer's local dispatch and the fire-and-forget Supabase write always
- * agree on the persisted text. */
-const BS_CHECK_PASSED_NOTE =
-  'Anchored to something specific only you could write — nobody else can write this version.'
-
-/** Pure so it can be shared between the reducer's `HUMANIZE_DRAFT` case and
- * the `humanizeDraft` wrapper (which needs the same next values to persist
- * them, without waiting on React's async state update). */
-export function humanizeStats(
-  aiTexture: number,
-  voiceMatch: number,
-): { aiTexture: number; voiceMatch: number } {
-  return { aiTexture: Math.max(0, aiTexture - 2), voiceMatch: Math.min(99, voiceMatch + 4) }
-}
 
 /** Pure so `CREATE_DRAFT` and the `createDraft` wrapper's fire-and-forget
  * insert build the exact same object. `voiceMatchSeed` is the new
@@ -102,10 +86,10 @@ export function buildDraftFromSeed(
     excerpt: seed.paragraphs[0] ?? '',
     pillar: seed.pillar,
     stage: 'draft',
-    bsCheck: 'not_run',
-    bsCheckNote: '',
+    slopScore: 0,
+    roastVerdict: '',
+    roastFlags: [],
     voiceMatch: voiceMatchSeed,
-    aiTexture: 0,
     sourceIdeaId: seed.sourceIdeaId,
     sourceType: seed.sourceType,
     sourceLabel: seed.sourceLabel,
@@ -170,28 +154,19 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
         ),
       }
 
-    case 'RUN_BS_CHECK':
-      return {
-        ...state,
-        drafts: state.drafts.map((d) =>
-          d.id === action.id
-            ? {
-                ...d,
-                bsCheck: 'passed',
-                bsCheckNote: BS_CHECK_PASSED_NOTE,
-                updatedAt: new Date().toISOString(),
-              }
-            : d,
-        ),
-      }
-
-    case 'HUMANIZE_DRAFT':
+    case 'RUN_ROAST':
       return {
         ...state,
         drafts: state.drafts.map((d) => {
           if (d.id !== action.id) return d
-          const next = humanizeStats(d.aiTexture, d.voiceMatch)
-          return { ...d, ...next, updatedAt: new Date().toISOString() }
+          const result = runRoastDetector(d.paragraphs)
+          return {
+            ...d,
+            slopScore: result.slopScore,
+            roastVerdict: result.roastVerdict,
+            roastFlags: result.roastFlags,
+            updatedAt: new Date().toISOString(),
+          }
         }),
       }
 
@@ -304,8 +279,7 @@ interface ContentContextValue extends ContentState {
   restoreIdea: (id: string) => void
   createDraft: (seed: ComposerSeed) => string
   updateDraft: (id: string, patch: Partial<Draft>) => void
-  runBsCheck: (id: string) => void
-  humanizeDraft: (id: string) => void
+  runRoastCheck: (id: string) => void
   toggleChecklistItem: (id: string, key: keyof Draft['checklist']) => void
   setDraftStage: (id: string, stage: ContentStage, scheduledFor?: string) => void
   restoreDraft: (id: string) => void
@@ -407,19 +381,16 @@ export function ContentProvider({ children }: { children: ReactNode }) {
           reportWriteError('updateDraft', e),
         )
       },
-      runBsCheck: (id) => {
-        dispatch({ type: 'RUN_BS_CHECK', id })
-        void updateDraftRow(id, { bsCheck: 'passed', bsCheckNote: BS_CHECK_PASSED_NOTE }).catch((e) =>
-          reportWriteError('runBsCheck', e),
-        )
-      },
-      humanizeDraft: (id) => {
+      runRoastCheck: (id) => {
         const draft = state.drafts.find((d) => d.id === id)
-        dispatch({ type: 'HUMANIZE_DRAFT', id })
-        if (draft) {
-          const next = humanizeStats(draft.aiTexture, draft.voiceMatch)
-          void updateDraftRow(id, next).catch((e) => reportWriteError('humanizeDraft', e))
-        }
+        if (!draft) return
+        const result = runRoastDetector(draft.paragraphs)
+        dispatch({ type: 'RUN_ROAST', id })
+        void updateDraftRow(id, {
+          slopScore: result.slopScore,
+          roastVerdict: result.roastVerdict,
+          roastFlags: result.roastFlags,
+        }).catch((e) => reportWriteError('runRoastCheck', e))
       },
       toggleChecklistItem: (id, key) => {
         const draft = state.drafts.find((d) => d.id === id)
