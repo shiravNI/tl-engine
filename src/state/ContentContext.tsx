@@ -9,6 +9,8 @@ import {
   type ReactNode,
 } from 'react'
 import {
+  buildCarouselDeckFromInput,
+  deleteCarouselDeckRow,
   deleteDraft,
   deleteIdea,
   fetchCarouselDecks,
@@ -16,6 +18,7 @@ import {
   fetchIdeas,
   fetchPosts,
   fetchVideoItems,
+  insertCarouselDeckRow,
   insertDraft,
   insertIdea,
   insertPost,
@@ -77,6 +80,8 @@ type ContentAction =
   | { type: 'ADD_RESOURCE'; resource: Resource }
   | { type: 'DELETE_RESOURCE'; id: string }
   | { type: 'SET_POSTS'; posts: PostAnalytics[] }
+  | { type: 'ADD_CAROUSEL_DECK'; deck: CarouselDeck }
+  | { type: 'DELETE_CAROUSEL_DECK'; id: string }
 
 /** Pure so `CREATE_DRAFT` and the `createDraft` wrapper's fire-and-forget
  * insert build the exact same object. `voiceMatchSeed` is the new
@@ -291,6 +296,12 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
     case 'SET_POSTS':
       return { ...state, posts: action.posts }
 
+    case 'ADD_CAROUSEL_DECK':
+      return { ...state, carouselDecks: [action.deck, ...state.carouselDecks] }
+
+    case 'DELETE_CAROUSEL_DECK':
+      return { ...state, carouselDecks: state.carouselDecks.filter((d) => d.id !== action.id) }
+
     default:
       return state
   }
@@ -313,6 +324,8 @@ interface ContentContextValue extends ContentState {
   setVideoStage: (id: string, stage: VideoStage) => void
   addVideoItem: (item: VideoItem) => void
   updateCarouselSlide: (deckId: string, slideId: string, patch: Partial<CarouselSlide>) => void
+  createCarouselDeck: (input: { title: string; prompt: string }) => string
+  deleteCarouselDeck: (id: string) => void
   getDraft: (id: string) => Draft | undefined
   getIdea: (id: string) => Idea | undefined
   createResource: (input: Omit<Resource, 'id' | 'createdAt'>) => string
@@ -488,6 +501,17 @@ export function ContentProvider({ children }: { children: ReactNode }) {
         void updateCarouselSlideRow(slideId, patch).catch((e) =>
           reportWriteError('updateCarouselSlide', e),
         )
+      },
+      createCarouselDeck: (input) => {
+        const id = crypto.randomUUID()
+        const deck = buildCarouselDeckFromInput(id, input)
+        dispatch({ type: 'ADD_CAROUSEL_DECK', deck })
+        void insertCarouselDeckRow(userId, deck).catch((e) => reportWriteError('createCarouselDeck', e))
+        return id
+      },
+      deleteCarouselDeck: (id) => {
+        dispatch({ type: 'DELETE_CAROUSEL_DECK', id })
+        void deleteCarouselDeckRow(id).catch((e) => reportWriteError('deleteCarouselDeck', e))
       },
       getDraft: (id) => state.drafts.find((d) => d.id === id),
       getIdea: (id) => state.ideas.find((i) => i.id === id),

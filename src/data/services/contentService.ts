@@ -476,3 +476,75 @@ export async function updateCarouselSlideRow(
   if (Object.keys(row).length === 0) return
   await supabase.from('carousel_slides').update(row).eq('id', slideId)
 }
+
+/** The starter slide set every new deck gets immediately, so there's
+ * something real to edit right away — this is honest manual persistence,
+ * not real AI generation (no slide *content* is invented here, only the
+ * cover/data/data/data/cta scaffold with empty headlines). */
+const STARTER_SLIDE_SPECS: Array<Pick<CarouselSlide, 'kind' | 'label' | 'hasChart'>> = [
+  { kind: 'cover', label: '01 · Cover', hasChart: false },
+  { kind: 'data', label: '02 · Data', hasChart: true },
+  { kind: 'data', label: '03 · Data', hasChart: true },
+  { kind: 'data', label: '04 · Data', hasChart: true },
+  { kind: 'cta', label: '05 · CTA', hasChart: false },
+]
+
+export function buildStarterCarouselSlides(): CarouselSlide[] {
+  return STARTER_SLIDE_SPECS.map((spec, i) => ({
+    id: crypto.randomUUID(),
+    index: i + 1,
+    kind: spec.kind,
+    label: spec.label,
+    headline: '',
+    hasChart: spec.hasChart,
+  }))
+}
+
+/** Pure so the `createCarouselDeck` wrapper's optimistic dispatch and its
+ * fire-and-forget insert build the exact same deck+slides — same
+ * convention as `buildDraftFromSeed`. */
+export function buildCarouselDeckFromInput(id: string, input: { title: string; prompt: string }): CarouselDeck {
+  return {
+    id,
+    title: input.title,
+    prompt: input.prompt,
+    stage: 'drafting',
+    slides: buildStarterCarouselSlides(),
+  }
+}
+
+function carouselDeckToInsertRow(userId: string, deck: CarouselDeck): Record<string, unknown> {
+  return {
+    id: deck.id,
+    user_id: userId,
+    title: deck.title,
+    prompt: deck.prompt,
+    source_file_label: deck.sourceFileLabel ?? null,
+    stage: deck.stage,
+  }
+}
+
+function carouselSlideToInsertRow(userId: string, deckId: string, slide: CarouselSlide): Record<string, unknown> {
+  return {
+    id: slide.id,
+    user_id: userId,
+    deck_id: deckId,
+    index: slide.index,
+    kind: slide.kind,
+    label: slide.label,
+    headline: slide.headline,
+    has_chart: slide.hasChart ?? false,
+  }
+}
+
+export async function insertCarouselDeckRow(userId: string, deck: CarouselDeck): Promise<void> {
+  await supabase.from('carousel_decks').insert(carouselDeckToInsertRow(userId, deck))
+  if (deck.slides.length > 0) {
+    await supabase.from('carousel_slides').insert(deck.slides.map((s) => carouselSlideToInsertRow(userId, deck.id, s)))
+  }
+}
+
+export async function deleteCarouselDeckRow(id: string): Promise<void> {
+  // `carousel_slides.deck_id` cascades on delete (see schema.sql).
+  await supabase.from('carousel_decks').delete().eq('id', id)
+}
