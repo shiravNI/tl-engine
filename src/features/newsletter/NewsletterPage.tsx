@@ -5,15 +5,21 @@ import { Card } from '@/components/primitives/Card'
 import { Button } from '@/components/primitives/Button'
 import { DashedPlaceholder } from '@/components/primitives/DashedPlaceholder'
 import { useContent } from '@/state/ContentContext'
+import { useAppShell } from '@/state/AppShellContext'
 import { fetchNewsletterIssue } from '@/data/services/newsletterService'
-import type { NewsletterIssue } from '@/data/types'
+import { seedFromIdea, seedFromResource } from '@/lib/composerSeed'
+import type { NewsletterIssue, NewsletterStory } from '@/data/types'
 
 const RECENT_RESOURCES = 5
 
-/** `5a` — Newsletter: daily auto briefing with pre-written post ideas. */
+/** `5a` — Newsletter: daily auto briefing with pre-written post ideas,
+ * composed live from the user's own real ideas/resources/posts (see
+ * newsletterService.ts) — no second stored-content system, no fixture
+ * fallback ids. */
 export function NewsletterPage() {
   const navigate = useNavigate()
-  const { createDraft, resources, createResource } = useContent()
+  const { currentUser } = useAppShell()
+  const { createDraft, resources, createResource, getIdea, getResource } = useContent()
   const [issue, setIssue] = useState<NewsletterIssue | null>(null)
   const [addingResource, setAddingResource] = useState(false)
   const [resourceUrlDraft, setResourceUrlDraft] = useState('')
@@ -28,20 +34,34 @@ export function NewsletterPage() {
   }
 
   useEffect(() => {
-    fetchNewsletterIssue().then(setIssue)
-  }, [])
+    fetchNewsletterIssue(currentUser.id).then(setIssue)
+  }, [currentUser.id])
 
   if (!issue) return <div className="p-8 text-[13px] text-muted">Loading today's issue…</div>
 
-  function turnIntoDraft(headline: string, matchesLabel: string) {
-    const id = createDraft({
-      title: headline,
-      paragraphs: [headline, ''],
-      sourceType: 'newsletter',
-      sourceLabel: matchesLabel,
-      pillar: null,
-    })
+  function turnIntoDraft(story: NewsletterStory) {
+    const seed =
+      story.refType === 'idea'
+        ? (() => {
+            const idea = getIdea(story.refId)
+            return idea ? seedFromIdea(idea) : undefined
+          })()
+        : (() => {
+            const resource = getResource(story.refId)
+            return resource ? seedFromResource(resource) : undefined
+          })()
+    if (!seed) return
+    const id = createDraft(seed)
     navigate(`/create/drafts/${id}`)
+  }
+
+  const seedIdeaId = issue.prewrittenDraft.seedIdeaId
+  const seedResourceId = issue.prewrittenDraft.seedResourceId
+  const hasPrewrittenSeed = Boolean(seedIdeaId || seedResourceId)
+
+  function sendPrewrittenToDrafts() {
+    if (seedIdeaId) navigate(`/create/drafts/new?fromIdea=${seedIdeaId}`)
+    else if (seedResourceId) navigate(`/create/drafts/new?fromResource=${seedResourceId}`)
   }
 
   return (
@@ -50,7 +70,7 @@ export function NewsletterPage() {
         <div className="flex items-end justify-between">
           <div>
             <p className="mb-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">
-              Daily briefing · delivered 7:00 AM
+              Daily briefing · {issue.date}
             </p>
             <h1 className="text-[26px] font-bold tracking-tight">{issue.headline}</h1>
           </div>
@@ -64,21 +84,27 @@ export function NewsletterPage() {
         </div>
 
         <Card className="flex flex-col gap-2.5 p-4">
-          <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Top stories, last 48h</p>
-          {issue.stories.map((story) => (
-            <div key={story.id} className="flex items-start gap-2.5">
-              <span className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-accent" />
-              <div className="flex-1">
-                <p className="text-[13px] font-semibold leading-snug">{story.headline}</p>
-                <p className="mt-0.5 text-[12px] text-muted">
-                  {story.sourceLabel} · {story.matchesLabel}
-                </p>
+          <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Top stories, from your own Brain &amp; Resources</p>
+          {issue.stories.length === 0 ? (
+            <DashedPlaceholder className="p-3 text-center">
+              No stories yet — add an idea in Brain or save a Resource to see them here.
+            </DashedPlaceholder>
+          ) : (
+            issue.stories.map((story) => (
+              <div key={story.id} className="flex items-start gap-2.5">
+                <span className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-accent" />
+                <div className="flex-1">
+                  <p className="text-[13px] font-semibold leading-snug">{story.headline}</p>
+                  <p className="mt-0.5 text-[12px] text-muted">
+                    {story.sourceLabel} · {story.matchesLabel}
+                  </p>
+                </div>
+                <Button size="sm" variant="secondary" onClick={() => turnIntoDraft(story)}>
+                  Turn into draft
+                </Button>
               </div>
-              <Button size="sm" variant="secondary" onClick={() => turnIntoDraft(story.headline, story.matchesLabel)}>
-                Turn into draft
-              </Button>
-            </div>
-          ))}
+            ))
+          )}
         </Card>
 
         <Card className="flex flex-col gap-2.5 p-4">
@@ -98,20 +124,10 @@ export function NewsletterPage() {
             <p className="text-[13px] font-semibold leading-snug">"{issue.prewrittenDraft.hook}"</p>
             <p className="mt-1.5 text-[12px] text-muted">{issue.prewrittenDraft.note}</p>
             <div className="mt-2 flex gap-2">
-              <Button size="sm" variant="secondary">
+              <Button size="sm" variant="secondary" disabled={!hasPrewrittenSeed}>
                 Preview
               </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={() =>
-                  navigate(
-                    issue.prewrittenDraft.seedIdeaId
-                      ? `/create/drafts/new?fromIdea=${issue.prewrittenDraft.seedIdeaId}`
-                      : '/create/drafts/new?fromNewsletter=1',
-                  )
-                }
-              >
+              <Button size="sm" variant="primary" onClick={sendPrewrittenToDrafts} disabled={!hasPrewrittenSeed}>
                 Send to Drafts
               </Button>
             </div>
@@ -172,12 +188,16 @@ export function NewsletterPage() {
         </Card>
         <Card className="flex flex-col gap-2.5 p-4">
           <p className="font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-muted">Past issues</p>
-          {issue.pastIssues.map((past) => (
-            <div key={past.label} className="flex justify-between text-[13px]">
-              <span className="text-body">{past.label}</span>
-              <span className="text-muted">{past.summary}</span>
-            </div>
-          ))}
+          {issue.pastIssues.length === 0 ? (
+            <p className="text-[12px] text-muted">No past issues stored — this is a live digest computed fresh each time, not a saved history.</p>
+          ) : (
+            issue.pastIssues.map((past) => (
+              <div key={past.label} className="flex justify-between text-[13px]">
+                <span className="text-body">{past.label}</span>
+                <span className="text-muted">{past.summary}</span>
+              </div>
+            ))
+          )}
         </Card>
       </div>
     </div>

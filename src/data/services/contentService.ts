@@ -1,17 +1,10 @@
-// Ideas, drafts, video items and carousel decks against Supabase — row
-// (snake_case) <-> camelCase mappers live here since supabase-js doesn't
-// auto-convert. RLS (flat `auth.uid() = user_id` policies, see
+// Ideas, drafts, posts, video items and carousel decks against Supabase —
+// row (snake_case) <-> camelCase mappers live here since supabase-js
+// doesn't auto-convert. RLS (flat `auth.uid() = user_id` policies, see
 // supabase/schema.sql) is the sole isolation mechanism; `userId` is still
 // threaded through every write because an insert's `user_id` column has to
 // be set for the `with check (auth.uid() = user_id)` clause to pass.
-//
-// `posts` is explicitly deferred to phase 2 (analytics-derived, not
-// user-authored — see the plan) — there is no `posts` table yet, so
-// `fetchPosts`/`fetchPostPerformance`-style reads still come from the
-// fixture below, unchanged from before this migration.
 import { supabase } from '@/lib/supabaseClient'
-import { posts as postsFixture } from '@/data/fixtures/posts'
-import { mockAsync } from '@/lib/mockAsync'
 import type {
   CarouselDeck,
   CarouselSlide,
@@ -110,6 +103,7 @@ interface DraftRow {
   roast_verdict: string
   roast_flags: RoastFlag[]
   voice_match: number
+  origin: string
   source_idea_id: string | null
   source_type: string | null
   source_label: string | null
@@ -136,6 +130,7 @@ export function rowToDraft(row: DraftRow): Draft {
     roastVerdict: row.roast_verdict,
     roastFlags: row.roast_flags ?? [],
     voiceMatch: row.voice_match,
+    origin: row.origin as Draft['origin'],
     sourceIdeaId: row.source_idea_id ?? undefined,
     sourceType: (row.source_type as Draft['sourceType']) ?? undefined,
     sourceLabel: row.source_label ?? undefined,
@@ -164,6 +159,7 @@ export function draftToInsertRow(userId: string, draft: Draft): Record<string, u
     roast_verdict: draft.roastVerdict,
     roast_flags: draft.roastFlags,
     voice_match: draft.voiceMatch,
+    origin: draft.origin,
     source_idea_id: draft.sourceIdeaId ?? null,
     source_type: draft.sourceType ?? null,
     source_label: draft.sourceLabel ?? null,
@@ -234,11 +230,107 @@ export async function deleteDraft(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// posts — deferred to phase 2, stays fixture-backed (see file header)
+// posts — real per-user post-performance data. A row is inserted the
+// moment a draft is published (see ContentContext's setDraftStage), and/or
+// upserted from a real .xlsx export the user uploads themselves.
 // ---------------------------------------------------------------------------
 
-export async function fetchPosts(): Promise<PostAnalytics[]> {
-  return mockAsync(postsFixture, 150)
+interface PostRow {
+  id: string
+  draft_id: string | null
+  title: string
+  pillar: string
+  published_at: string
+  impressions: number
+  engagement_rate: number
+  saves: number
+  trend: number[]
+  archived_at: string | null
+  created_at: string
+}
+
+export function rowToPost(row: PostRow): PostAnalytics {
+  return {
+    id: row.id,
+    draftId: row.draft_id ?? undefined,
+    title: row.title,
+    pillar: row.pillar as Pillar,
+    publishedAt: row.published_at,
+    impressions: row.impressions,
+    engagementRate: row.engagement_rate,
+    saves: row.saves,
+    trend: row.trend ?? [],
+    archivedAt: row.archived_at ?? undefined,
+  }
+}
+
+export function postToInsertRow(userId: string, post: PostAnalytics): Record<string, unknown> {
+  return {
+    id: post.id,
+    user_id: userId,
+    draft_id: post.draftId ?? null,
+    title: post.title,
+    pillar: post.pillar,
+    published_at: post.publishedAt,
+    impressions: post.impressions,
+    engagement_rate: post.engagementRate,
+    saves: post.saves,
+    trend: post.trend,
+    archived_at: post.archivedAt ?? null,
+  }
+}
+
+export async function fetchPosts(userId: string): Promise<PostAnalytics[]> {
+  const { data, error } = await supabase
+    .from('posts')
+    .select('*')
+    .eq('user_id', userId)
+    .order('published_at', { ascending: false })
+  if (error || !data) return []
+  return (data as PostRow[]).map(rowToPost)
+}
+
+export async function insertPost(userId: string, post: PostAnalytics): Promise<void> {
+  await supabase.from('posts').insert(postToInsertRow(userId, post))
+}
+
+/** A row parsed from an uploaded `.xlsx` export — no `id`/`trend`/`draftId`
+ * yet, since an uploaded row was never synthesized from a draft. */
+export type UploadedPostRow = Pick<
+  PostAnalytics,
+  'title' | 'pillar' | 'publishedAt' | 'impressions' | 'engagementRate' | 'saves'
+>
+
+/** Matches uploaded rows against the user's existing posts by
+ * `(title, publishedAt)` so re-uploading the same export updates the
+ * existing row instead of duplicating it. No DB-level unique constraint
+ * backs this pairing, so the match happens here in application code rather
+ * than via a Postgres `upsert(... onConflict)`. */
+export async function upsertUploadedPosts(userId: string, rows: UploadedPostRow[]): Promise<void> {
+  const existing = await fetchPosts(userId)
+  const keyOf = (title: string, publishedAt: string) => `${title}::${publishedAt}`
+  const existingByKey = new Map(existing.map((p) => [keyOf(p.title, p.publishedAt), p]))
+
+  for (const row of rows) {
+    const match = existingByKey.get(keyOf(row.title, row.publishedAt))
+    if (match) {
+      await supabase
+        .from('posts')
+        .update({
+          pillar: row.pillar,
+          impressions: row.impressions,
+          engagement_rate: row.engagementRate,
+          saves: row.saves,
+        })
+        .eq('id', match.id)
+    } else {
+      await insertPost(userId, {
+        id: crypto.randomUUID(),
+        trend: [],
+        ...row,
+      })
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -386,4 +478,76 @@ export async function updateCarouselSlideRow(
   if (patch.hasChart !== undefined) row.has_chart = patch.hasChart
   if (Object.keys(row).length === 0) return
   await supabase.from('carousel_slides').update(row).eq('id', slideId)
+}
+
+/** The starter slide set every new deck gets immediately, so there's
+ * something real to edit right away — this is honest manual persistence,
+ * not real AI generation (no slide *content* is invented here, only the
+ * cover/data/data/data/cta scaffold with empty headlines). */
+const STARTER_SLIDE_SPECS: Array<Pick<CarouselSlide, 'kind' | 'label' | 'hasChart'>> = [
+  { kind: 'cover', label: '01 · Cover', hasChart: false },
+  { kind: 'data', label: '02 · Data', hasChart: true },
+  { kind: 'data', label: '03 · Data', hasChart: true },
+  { kind: 'data', label: '04 · Data', hasChart: true },
+  { kind: 'cta', label: '05 · CTA', hasChart: false },
+]
+
+export function buildStarterCarouselSlides(): CarouselSlide[] {
+  return STARTER_SLIDE_SPECS.map((spec, i) => ({
+    id: crypto.randomUUID(),
+    index: i + 1,
+    kind: spec.kind,
+    label: spec.label,
+    headline: '',
+    hasChart: spec.hasChart,
+  }))
+}
+
+/** Pure so the `createCarouselDeck` wrapper's optimistic dispatch and its
+ * fire-and-forget insert build the exact same deck+slides — same
+ * convention as `buildDraftFromSeed`. */
+export function buildCarouselDeckFromInput(id: string, input: { title: string; prompt: string }): CarouselDeck {
+  return {
+    id,
+    title: input.title,
+    prompt: input.prompt,
+    stage: 'drafting',
+    slides: buildStarterCarouselSlides(),
+  }
+}
+
+function carouselDeckToInsertRow(userId: string, deck: CarouselDeck): Record<string, unknown> {
+  return {
+    id: deck.id,
+    user_id: userId,
+    title: deck.title,
+    prompt: deck.prompt,
+    source_file_label: deck.sourceFileLabel ?? null,
+    stage: deck.stage,
+  }
+}
+
+function carouselSlideToInsertRow(userId: string, deckId: string, slide: CarouselSlide): Record<string, unknown> {
+  return {
+    id: slide.id,
+    user_id: userId,
+    deck_id: deckId,
+    index: slide.index,
+    kind: slide.kind,
+    label: slide.label,
+    headline: slide.headline,
+    has_chart: slide.hasChart ?? false,
+  }
+}
+
+export async function insertCarouselDeckRow(userId: string, deck: CarouselDeck): Promise<void> {
+  await supabase.from('carousel_decks').insert(carouselDeckToInsertRow(userId, deck))
+  if (deck.slides.length > 0) {
+    await supabase.from('carousel_slides').insert(deck.slides.map((s) => carouselSlideToInsertRow(userId, deck.id, s)))
+  }
+}
+
+export async function deleteCarouselDeckRow(id: string): Promise<void> {
+  // `carousel_slides.deck_id` cascades on delete (see schema.sql).
+  await supabase.from('carousel_decks').delete().eq('id', id)
 }

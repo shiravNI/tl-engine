@@ -14,6 +14,7 @@ export const drafts: Draft[] = [
     pillar: 'AI search',
     stage: 'draft',
     format: 'post',
+    origin: 'user',
     slopScore: 0,
     roastVerdict: "Anchored and specific — this reads like only you could've written it.",
     roastFlags: [],
@@ -43,6 +44,7 @@ export const drafts: Draft[] = [
     pillar: null,
     stage: 'draft',
     format: 'post',
+    origin: 'user',
     // Real, populated roastFlags — matches this draft's own second
     // paragraph, so the UI has something to show without needing a live
     // run first (per the plan's fixture requirement).
@@ -86,6 +88,7 @@ export const drafts: Draft[] = [
     pillar: 'Performance',
     stage: 'scheduled',
     format: 'post',
+    origin: 'user',
     slopScore: 0,
     roastVerdict: "Anchored and specific — this reads like only you could've written it.",
     roastFlags: [],
@@ -108,6 +111,7 @@ export const drafts: Draft[] = [
     pillar: 'Performance',
     stage: 'archived',
     format: 'post',
+    origin: 'user',
     // Never roasted.
     slopScore: 0,
     roastVerdict: '',
@@ -131,6 +135,7 @@ export const drafts: Draft[] = [
     pillar: 'Performance',
     stage: 'archived',
     format: 'post',
+    origin: 'user',
     slopScore: 0,
     roastVerdict: '',
     roastFlags: [],
@@ -156,6 +161,7 @@ export const drafts: Draft[] = [
     pillar: 'Performance',
     stage: 'in_review',
     format: 'post',
+    origin: 'user',
     slopScore: 0,
     roastVerdict: '',
     roastFlags: [],

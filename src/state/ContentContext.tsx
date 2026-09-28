@@ -9,6 +9,8 @@ import {
   type ReactNode,
 } from 'react'
 import {
+  buildCarouselDeckFromInput,
+  deleteCarouselDeckRow,
   deleteDraft,
   deleteIdea,
   fetchCarouselDecks,
@@ -16,13 +18,17 @@ import {
   fetchIdeas,
   fetchPosts,
   fetchVideoItems,
+  insertCarouselDeckRow,
   insertDraft,
   insertIdea,
+  insertPost,
   insertVideoItem,
   setIdeaArchivedAt,
   updateCarouselSlideRow,
   updateDraftRow,
   updateVideoItemStage,
+  upsertUploadedPosts,
+  type UploadedPostRow,
 } from '@/data/services/contentService'
 import { fetchVoiceCard } from '@/data/services/onboardingService'
 import { deleteResource, fetchResources, insertResource } from '@/data/services/resourceService'
@@ -70,7 +76,7 @@ type ContentAction =
   | { type: 'UPDATE_DRAFT'; id: string; patch: Partial<Draft> }
   | { type: 'RUN_ROAST'; id: string }
   | { type: 'TOGGLE_CHECKLIST'; id: string; key: keyof Draft['checklist'] }
-  | { type: 'SET_DRAFT_STAGE'; id: string; stage: ContentStage; scheduledFor?: string }
+  | { type: 'SET_DRAFT_STAGE'; id: string; stage: ContentStage; scheduledFor?: string; postId?: string }
   | { type: 'RESTORE_DRAFT'; id: string }
   | { type: 'DELETE_ARCHIVED_DRAFT'; id: string }
   | { type: 'DELETE_ARCHIVED_IDEA'; id: string }
@@ -83,6 +89,9 @@ type ContentAction =
   | { type: 'DELETE_RESOURCE'; id: string }
   | { type: 'ADD_BRAIN_MATERIAL'; material: BrainMaterial }
   | { type: 'DELETE_BRAIN_MATERIAL'; id: string }
+  | { type: 'SET_POSTS'; posts: PostAnalytics[] }
+  | { type: 'ADD_CAROUSEL_DECK'; deck: CarouselDeck }
+  | { type: 'DELETE_CAROUSEL_DECK'; id: string }
 
 /** Pure so `CREATE_DRAFT` and the `createDraft` wrapper's fire-and-forget
  * insert build the exact same object. `voiceMatchSeed` is the new
@@ -102,6 +111,7 @@ export function buildDraftFromSeed(
     pillar: seed.pillar,
     stage: 'draft',
     format: seed.format ?? 'post',
+    origin: 'user',
     slopScore: 0,
     roastVerdict: '',
     roastFlags: [],
@@ -117,6 +127,24 @@ export function buildDraftFromSeed(
     },
     createdAt: now,
     updatedAt: now,
+  }
+}
+
+/** Pure so the reducer's optimistic `SET_DRAFT_STAGE` case and the
+ * `setDraftStage` wrapper's fire-and-forget `insertPost` build the exact
+ * same row (same `id` too, passed in by the caller) — same shape
+ * convention as `buildDraftFromSeed` above. */
+export function buildPublishedPost(draft: Draft, publishedAt: string, id: string): PostAnalytics {
+  return {
+    id,
+    draftId: draft.id,
+    title: draft.title,
+    pillar: draft.pillar ?? 'Untagged',
+    publishedAt: publishedAt.slice(0, 10),
+    impressions: 0,
+    engagementRate: 0,
+    saves: 0,
+    trend: [0, 0, 0, 0, 0],
   }
 }
 
@@ -210,20 +238,7 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
       let posts = state.posts
 
       if (action.stage === 'published') {
-        posts = [
-          {
-            id: makeId('post'),
-            draftId: draft.id,
-            title: draft.title,
-            pillar: draft.pillar ?? 'Untagged',
-            publishedAt: now.slice(0, 10),
-            impressions: 0,
-            engagementRate: 0,
-            saves: 0,
-            trend: [0, 0, 0, 0, 0],
-          },
-          ...state.posts,
-        ]
+        posts = [buildPublishedPost(draft, now, action.postId ?? makeId('post')), ...state.posts]
       }
 
       return {
@@ -295,6 +310,15 @@ function reducer(state: ContentState, action: ContentAction): ContentState {
     case 'DELETE_BRAIN_MATERIAL':
       return { ...state, brainMaterials: state.brainMaterials.filter((m) => m.id !== action.id) }
 
+    case 'SET_POSTS':
+      return { ...state, posts: action.posts }
+
+    case 'ADD_CAROUSEL_DECK':
+      return { ...state, carouselDecks: [action.deck, ...state.carouselDecks] }
+
+    case 'DELETE_CAROUSEL_DECK':
+      return { ...state, carouselDecks: state.carouselDecks.filter((d) => d.id !== action.id) }
+
     default:
       return state
   }
@@ -317,6 +341,8 @@ interface ContentContextValue extends ContentState {
   setVideoStage: (id: string, stage: VideoStage) => void
   addVideoItem: (item: VideoItem) => void
   updateCarouselSlide: (deckId: string, slideId: string, patch: Partial<CarouselSlide>) => void
+  createCarouselDeck: (input: { title: string; prompt: string }) => string
+  deleteCarouselDeck: (id: string) => void
   getDraft: (id: string) => Draft | undefined
   getIdea: (id: string) => Idea | undefined
   createResource: (input: Omit<Resource, 'id' | 'createdAt'>) => string
@@ -329,6 +355,13 @@ interface ContentContextValue extends ContentState {
   ) => Promise<void>
   addBrainMaterialLink: (input: { kind: BrainMaterial['kind']; title: string; sourceUrl: string }) => void
   deleteBrainMaterial: (id: string) => void
+  /** Bulk-imports posts parsed from an uploaded `.xlsx` export — matches
+   * existing rows by `(title, publishedAt)` so re-uploading updates
+   * instead of duplicating. Genuinely async (not the usual
+   * optimistic-dispatch-then-fire-and-forget pattern): the upload needs to
+   * resolve against the user's real existing rows before the UI can show
+   * an accurate merged result. */
+  importPosts: (rows: UploadedPostRow[]) => Promise<void>
 }
 
 const ContentContext = createContext<ContentContextValue | undefined>(undefined)
@@ -366,7 +399,7 @@ export function ContentProvider({ children }: { children: ReactNode }) {
     Promise.all([
       fetchIdeas(userId),
       fetchDrafts(userId),
-      fetchPosts(),
+      fetchPosts(userId),
       fetchVideoItems(userId),
       fetchCarouselDecks(userId),
       fetchVoiceCard(userId),
@@ -450,16 +483,21 @@ export function ContentProvider({ children }: { children: ReactNode }) {
       setDraftStage: (id, stage, scheduledFor) => {
         const draft = state.drafts.find((d) => d.id === id)
         if (!draft || !canTransitionContentStage(draft.stage, stage)) return
-        dispatch({ type: 'SET_DRAFT_STAGE', id, stage, scheduledFor })
+        const postId = stage === 'published' ? makeId('post') : undefined
+        dispatch({ type: 'SET_DRAFT_STAGE', id, stage, scheduledFor, postId })
         const now = new Date().toISOString()
         const patch: Partial<Draft> = { stage }
         if (stage === 'scheduled') patch.scheduledFor = scheduledFor ?? now
         if (stage === 'published') patch.publishedAt = now
         if (stage === 'archived') patch.archivedAt = now
         void updateDraftRow(id, patch).catch((e) => reportWriteError('setDraftStage', e))
-        // Publishing also creates a local `PostAnalytics` row (see the
-        // reducer) — `posts` is explicitly deferred to phase 2, so that
-        // row is optimistic-only for now and isn't written to Supabase.
+        // Publishing also creates a real `posts` row — same `id` as the
+        // optimistic one the reducer just added to local state, so this
+        // fire-and-forget write persists exactly what's already on screen.
+        if (stage === 'published' && postId) {
+          const post = buildPublishedPost(draft, now, postId)
+          void insertPost(userId, post).catch((e) => reportWriteError('setDraftStage:insertPost', e))
+        }
       },
       restoreDraft: (id) => {
         dispatch({ type: 'RESTORE_DRAFT', id })
@@ -492,6 +530,17 @@ export function ContentProvider({ children }: { children: ReactNode }) {
         void updateCarouselSlideRow(slideId, patch).catch((e) =>
           reportWriteError('updateCarouselSlide', e),
         )
+      },
+      createCarouselDeck: (input) => {
+        const id = crypto.randomUUID()
+        const deck = buildCarouselDeckFromInput(id, input)
+        dispatch({ type: 'ADD_CAROUSEL_DECK', deck })
+        void insertCarouselDeckRow(userId, deck).catch((e) => reportWriteError('createCarouselDeck', e))
+        return id
+      },
+      deleteCarouselDeck: (id) => {
+        dispatch({ type: 'DELETE_CAROUSEL_DECK', id })
+        void deleteCarouselDeckRow(id).catch((e) => reportWriteError('deleteCarouselDeck', e))
       },
       getDraft: (id) => state.drafts.find((d) => d.id === id),
       getIdea: (id) => state.ideas.find((i) => i.id === id),
@@ -560,6 +609,11 @@ export function ContentProvider({ children }: { children: ReactNode }) {
         void deleteBrainMaterialRow(id, material?.filePath ?? null).catch((e) =>
           reportWriteError('deleteBrainMaterial', e),
         )
+      },
+      importPosts: async (rows) => {
+        await upsertUploadedPosts(userId, rows)
+        const posts = await fetchPosts(userId)
+        dispatch({ type: 'SET_POSTS', posts })
       },
     }),
     [state, loading, createDraft, userId],

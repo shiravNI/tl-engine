@@ -245,6 +245,7 @@ export function defaultSeed(): Tables {
         pillar: 'AI search',
         stage: 'draft',
         format: 'post',
+        origin: 'user',
         slop_score: 0,
         roast_verdict: "Anchored and specific — this reads like only you could've written it.",
         roast_flags: [],
@@ -270,6 +271,7 @@ export function defaultSeed(): Tables {
         pillar: 'Performance',
         stage: 'in_review',
         format: 'post',
+        origin: 'user',
         slop_score: 0,
         roast_verdict: '',
         roast_flags: [],
@@ -328,5 +330,8 @@ export function defaultSeed(): Tables {
     interview_answers: [],
     contacts: [],
     resources: [],
+    posts: [],
+    conversations: [],
+    chat_messages: [],
   }
 }

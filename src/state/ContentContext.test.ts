@@ -4,7 +4,15 @@ import type { Draft } from '@/data/types'
 import type { ComposerSeed } from '@/lib/composerSeed'
 
 function emptyState(): ContentState {
-  return { ideas: [], drafts: [], posts: [], videoItems: [], carouselDecks: [], resources: [] }
+  return {
+    ideas: [],
+    drafts: [],
+    posts: [],
+    videoItems: [],
+    carouselDecks: [],
+    resources: [],
+    brainMaterials: [],
+  }
 }
 
 function makeDraft(overrides: Partial<Draft> = {}): Draft {
@@ -16,6 +24,7 @@ function makeDraft(overrides: Partial<Draft> = {}): Draft {
     pillar: null,
     stage: 'draft',
     format: 'post',
+    origin: 'user',
     slopScore: 0,
     roastVerdict: '',
     roastFlags: [],
