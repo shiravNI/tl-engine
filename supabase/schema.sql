@@ -163,10 +163,12 @@ create table public.drafts (
   excerpt          text not null default '',
   pillar           text,
   stage            text not null default 'draft',
-  bs_check         text not null default 'not_run',
-  bs_check_note    text not null default '',
+  -- Merged "Roast" quality check (replaces bs_check/bs_check_note/ai_texture):
+  -- see src/lib/roast.ts for the detection engine that produces these.
+  slop_score       int not null default 0,
+  roast_verdict    text not null default '',
+  roast_flags      jsonb not null default '[]'::jsonb,
   voice_match      int not null default 0,
-  ai_texture       int not null default 0,
   source_idea_id   uuid references public.ideas(id) on delete set null,
   source_type      text,
   source_label     text,

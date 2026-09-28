@@ -46,7 +46,12 @@ export interface Idea {
   archivedAt?: string
 }
 
-export type BsCheckStatus = 'passed' | 'needs_review' | 'not_run'
+export interface RoastFlag {
+  /** Exact phrase/sentence pulled from the draft's own paragraphs. */
+  quote: string
+  /** The specific roast of that phrase — never a generic note. */
+  comment: string
+}
 
 export interface ChecklistState {
   hookEarnsSeeMore: boolean
@@ -63,10 +68,13 @@ export interface Draft {
   excerpt: string
   pillar: Pillar | null
   stage: ContentStage
-  bsCheck: BsCheckStatus
-  bsCheckNote: string
+  /** 0-10, LOWER is better — the merged "Roast" quality check's score. */
+  slopScore: number
+  /** One punchy overall line, picked by score tier. */
+  roastVerdict: string
+  /** Specific quoted+roasted lines found in this draft; [] if none found. */
+  roastFlags: RoastFlag[]
   voiceMatch: number
-  aiTexture: number
   sourceIdeaId?: string
   sourceType?: 'idea' | 'insight' | 'newsletter'
   sourceLabel?: string
